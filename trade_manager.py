@@ -1,0 +1,406 @@
+import logging
+import shared_state
+import MetaTrader5 as mt5
+import pandas as pd
+import pandas_ta as ta
+import ai_engine as ai
+import advanced_indicators as adv
+import system_utils as sutils
+import database_manager as dbm
+from datetime import datetime, timedelta
+from bot_config import *
+from trade_noti import send_trade_notification
+from discord.ext import tasks
+
+@tasks.loop(minutes=1)
+async def trading_job():
+
+    from discord_manager import get_win_loss_text 
+    
+    shared_state.SCAN_COUNT += 1
+
+    if check_daily_drawdown(): 
+        return
+
+    if shared_state.BOT_STATE in ["STOPPED", "WAITING", "DAY-OFF"]: 
+        return
+
+    if shared_state.BOT_STATE == "COOLDOWN":
+        shared_state.COOLDOWN_REMAINING -= 1 
+        if shared_state.COOLDOWN_REMAINING <= 0:
+            logging.getLogger("System").warning("⏳ AI ตื่นจากจำศีล กำลังตรวจสอบตลาด...")
+            for s in SYMBOLS_CONFIG:
+                rates = mt5.copy_rates_from_pos(s, TIMEFRAME, 0, 15)
+                prices = [r['close'] for r in rates]
+                volumes = [r['tick_volume'] for r in rates]
+                res = await ai.ai_check_cooldown(s, prices, volumes)
+                if res['status'] == "Stabilized":
+                    shared_state.BOT_STATE = "RUNNING"
+                    shared_state.AI_RETRY_COUNT = 0
+                else:
+                    shared_state.COOLDOWN_REMAINING = 30
+                    return
+        return
+
+    if not mt5.initialize(login=ACCOUNT_ID, password=PWD, server=SRV): return
+    
+    now = datetime.now()
+    now_time = now.time()
+    
+    is_news_window = False
+    for nt in getattr(shared_state, 'TODAY_NEWS_TIMES', []):
+        news_dt = datetime.combine(now.date(), nt)
+        start_window = (news_dt - timedelta(minutes=5)).time()
+        end_window = (news_dt + timedelta(minutes=15)).time()
+        
+        if start_window <= now_time <= end_window:
+            is_news_window = True
+            break
+    if is_news_window and shared_state.CURRENT_LOOP_MINS != 1:
+        shared_state.CURRENT_LOOP_MINS = 1
+        logging.getLogger("System").warning("🚨 [HYPER-ACTIVE MODE] เข้าสู่ช่วงข่าวกล่องแดง! AI สแกนทุก 1 นาที")
+    elif not is_news_window and shared_state.CURRENT_LOOP_MINS == 1:
+        shared_state.CURRENT_LOOP_MINS = 5
+        logging.getLogger("System").info("✅ [NORMAL MODE] พ้นช่วงข่าวกล่องแดง ปรับรอบสแกนกลับเป็น 5 นาที")
+
+    if shared_state.CURRENT_LOOP_MINS == 1:
+        is_ai_update_turn = True
+    else:
+        is_ai_update_turn = (shared_state.SCAN_COUNT % 5 == 1)        
+    
+    if is_ai_update_turn and not ai.AI_IS_ONLINE:
+        shared_state.AI_RETRY_COUNT = getattr(shared_state, 'AI_RETRY_COUNT', 0) + 1
+        logging.getLogger("System").warning(f"⚠️ พยายามปลุก AI ให้ตื่น (รอบที่ {shared_state.AI_RETRY_COUNT}/5)...")
+    elif ai.AI_IS_ONLINE:
+        shared_state.AI_RETRY_COUNT = 0 
+
+    if getattr(shared_state, 'AI_RETRY_COUNT', 0) >= 5:
+        shared_state.BOT_STATE = "COOLDOWN"
+        shared_state.COOLDOWN_REMAINING = 30
+        shared_state.AI_RETRY_COUNT = 0 
+        logging.getLogger("System").error("🚨 สัญญาณ AI ขาดหายเกิน 5 นาที! เข้าสู่โหมดจำศีลเพื่อความปลอดภัย")
+        return
+
+    has_spike = False
+    for s in SYMBOLS_CONFIG:
+        rsi = get_rsi(s) 
+        if rsi is None: continue
+        
+        if not is_safe_trading_time(s): 
+            continue
+            
+        is_volatile = check_volatility(s, ai.STRATEGY_DATA[s]["threshold"]) 
+        
+        if is_ai_update_turn or is_volatile or not ai.AI_IS_ONLINE:
+            if is_volatile: 
+                has_spike = True
+            
+            await ai.ai_update_strategy(s, get_win_loss_text())
+            shared_state.TRADE_LAYERS[s] = {"buy": [False]*5, "sell": [False]*5}
+
+        strat = ai.STRATEGY_DATA[s]
+
+        if is_ai_update_turn:
+            buy_target = strat['buy'][0] if strat.get('buy') else '--'
+            logging.getLogger(s).info(f"📊 RSI: {rsi:.2f} | เป้าซื้อ AI: < {buy_target} | ตลาด: {strat['regime']}")
+        
+        safe_buy = strat['buy'][0] if strat.get('buy') else 0
+        if safe_buy > 100:
+            logging.getLogger("System").error(f"🚨 บล็อกการเทรด {s}: AI ส่งเป้าหมายราคา ({safe_buy}) แทน RSI!")
+            continue
+
+        for i in range(5):
+            if rsi < strat['buy'][i] and not shared_state.TRADE_LAYERS.get(s, {}).get("buy", [False]*5)[i]:
+                if ai.AI_IS_ONLINE:
+                    tick = mt5.symbol_info_tick(s)
+                    if tick is None: continue
+                    st_data = adv.get_3_indicators(s) 
+                    ans = await ai.ai_analysis(s, tick.ask, rsi, st_data)
+                    
+                    if ans.get('decision') == "BUY":
+                        if place_order(s, "BUY", tick.ask, rsi, f"L{i+1}:{ans['reason']}"): 
+                            shared_state.TRADE_LAYERS.setdefault(s, {"buy":[False]*5, "sell":[False]*5})["buy"][i] = True
+
+            if mt5.positions_get(symbol=s) and rsi > strat['sell'][i] and not shared_state.TRADE_LAYERS.get(s, {}).get("sell", [False]*5)[i]:
+                if close_one_order(s): 
+                    shared_state.TRADE_LAYERS.setdefault(s, {"buy":[False]*5, "sell":[False]*5})["sell"][i] = True
+
+    positions = mt5.positions_get()
+    if positions:
+        for pos in positions:
+            ticket = pos.ticket
+            if ticket not in shared_state.ACTIVE_TRADE_TRACKER:
+                shared_state.ACTIVE_TRADE_TRACKER[ticket] = {"max_p": 0.0, "max_l": 0.0}
+                
+            current_p = pos.profit + pos.swap + pos.commission
+                
+            if current_p > shared_state.ACTIVE_TRADE_TRACKER[ticket]["max_p"]:
+                shared_state.ACTIVE_TRADE_TRACKER[ticket]["max_p"] = current_p
+                
+            if current_p < shared_state.ACTIVE_TRADE_TRACKER[ticket]["max_l"]:
+                shared_state.ACTIVE_TRADE_TRACKER[ticket]["max_l"] = current_p
+
+    try:
+        acc = mt5.account_info()
+        positions = mt5.positions_get()
+        if acc:
+            eq = acc.equity
+            pos_count = len(positions) if positions else 0
+            float_pl = sum([(p.profit + p.swap + p.commission) for p in positions]) if positions else 0.0
+            
+            state_str = shared_state.BOT_STATE
+            if state_str == "COOLDOWN":
+                state_str = f"COOLDOWN ({shared_state.COOLDOWN_REMAINING}m)"
+                
+            logging.getLogger("System").info(
+                f"💓 [Heartbeat] {state_str} | Gear: {shared_state.CURRENT_LOOP_MINS}m | "
+                f"ถือ: {pos_count} ไม้ | Float: {float_pl:+.2f} USD | Equity: {eq:.2f} USD"
+            )
+    except Exception as e:
+        pass
+        
+    if has_spike:
+        shared_state.FAST_GEAR_COUNT += 1
+        if shared_state.FAST_GEAR_COUNT >= 3:
+            shared_state.BOT_STATE = "COOLDOWN"
+            shared_state.COOLDOWN_REMAINING = 30
+            shared_state.FAST_GEAR_COUNT = 0
+            logging.getLogger("System").error("🚨 Circuit Breaker Active! ตลาดกระชากแรงต่อเนื่อง พัก 30 นาที")
+            return
+    else:
+        shared_state.FAST_GEAR_COUNT = 0
+        
+    sutils.save_web_status()
+
+@trading_job.error
+async def trading_job_error(exc):
+    import traceback
+    import logging
+    error_msg = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    logging.getLogger("System").error(f"🚨 [CRITICAL BUG] ระบบเทรดช็อตกระทันหัน:\n{error_msg}")
+
+def get_rsi(symbol):
+    rates = mt5.copy_rates_from_pos(symbol, TIMEFRAME, 0, 100)
+    if rates is None or len(rates) < 20: return None
+    df = pd.DataFrame(rates)
+    rsi_series = ta.rsi(df['close'], length=14)
+    return rsi_series.iloc[-1]
+
+def check_volatility(symbol, threshold):
+    safe_threshold = max(threshold, 0.2)
+    rates = mt5.copy_rates_from_pos(symbol, TIMEFRAME, 0, 2)
+    if rates is None or len(rates) < 2: return False
+    prev_close = rates[0]['close']
+    curr_close = rates[1]['close']
+    diff = abs(curr_close - prev_close) / prev_close * 100
+    return diff > safe_threshold
+
+def place_order(symbol, type, price, rsi, comment):
+    lot = SYMBOLS_CONFIG[symbol]["lot"]
+
+    raw_comment = str(comment).replace('\n', ' ').replace('\r', '').strip()
+    safe_comment = raw_comment[:25]
+
+    # 🟢 คำนวณ SL / TP เป็นตัวเลขราคา เพื่อส่งไปฝังที่เซิร์ฟเวอร์
+    symbol_info = mt5.symbol_info(symbol)
+    if symbol_info is None: return False
+    point = symbol_info.point
+    
+    sl_pts = SYMBOLS_CONFIG[symbol].get("sl_pts", 0)
+    tp_pts = SYMBOLS_CONFIG[symbol].get("tp_pts", 0)
+    
+    sl_price, tp_price = 0.0, 0.0
+    if sl_pts > 0 or tp_pts > 0:
+        if type == "BUY":
+            sl_price = price - (sl_pts * point) if sl_pts > 0 else 0.0
+            tp_price = price + (tp_pts * point) if tp_pts > 0 else 0.0
+        else: # SELL
+            sl_price = price + (sl_pts * point) if sl_pts > 0 else 0.0
+            tp_price = price - (tp_pts * point) if tp_pts > 0 else 0.0
+
+    request = {
+        "action": mt5.TRADE_ACTION_DEAL,
+        "symbol": symbol,
+        "volume": lot,
+        "type": mt5.ORDER_TYPE_BUY if type == "BUY" else mt5.ORDER_TYPE_SELL,
+        "price": price,
+        "sl": sl_price, # 🛡️ ส่ง SL ไปตั้งค่าที่โบรกเกอร์
+        "tp": tp_price, # 🎯 ส่ง TP ไปตั้งค่าที่โบรกเกอร์
+        "magic": MAGIC_NUMBER,
+        "comment": safe_comment,
+        "type_time": mt5.ORDER_TIME_GTC,
+        "type_filling": mt5.ORDER_FILLING_IOC,
+    }
+    
+    res = mt5.order_send(request)
+    
+    if res is None:
+        error_code = mt5.last_error()
+        logging.getLogger(symbol).error(f"❌ {type} Failed! คืนค่า None (MT5 Error: {error_code})")
+        return False
+        
+    if res.retcode == mt5.TRADE_RETCODE_DONE:
+        slippage = abs(res.price - price) / mt5.symbol_info(symbol).point
+        logging.getLogger(symbol).info(f"✅ {type} {symbol} {lot} lots at {price} (RSI: {rsi:.2f}) | {comment}")
+        send_trade_notification(symbol, type, price, rsi, res.order)
+        strat = ai.STRATEGY_DATA.get(symbol, {})
+        dbm.log_trade_entry(
+            ticket=res.order, symbol=symbol, order_type=type, lot_size=lot, 
+            entry_price=res.price, entry_reason=comment, slippage=slippage,
+            rsi_entry=rsi, market_regime=strat.get("regime", "N/A"),
+            vol_thresh=strat.get("threshold", 0.0), risk_level=shared_state.CURRENT_RISK_LEVEL
+        )
+        shared_state.ACTIVE_TRADE_TRACKER[res.order] = {"max_p": 0.0, "max_l": 0.0}
+        return True
+
+    logging.getLogger(symbol).error(f"❌ {type} Error: {res.comment}")
+    return False
+
+def close_one_order(symbol, reason="AI Action", max_float_p=0.0, max_float_l=0.0): 
+    positions = mt5.positions_get(symbol=symbol)
+    if not positions: return False
+    pos = positions[0] 
+    tick = mt5.symbol_info_tick(symbol)
+    if not tick: return False
+    
+    current_profit = pos.profit + pos.swap + pos.commission
+    
+    type_dict = {mt5.ORDER_TYPE_BUY: mt5.ORDER_TYPE_SELL, mt5.ORDER_TYPE_SELL: mt5.ORDER_TYPE_BUY}
+    price_dict = {mt5.ORDER_TYPE_BUY: tick.bid, mt5.ORDER_TYPE_SELL: tick.ask}
+    
+    request = {
+        "action": mt5.TRADE_ACTION_DEAL,
+        "symbol": symbol,
+        "volume": pos.volume,
+        "type": type_dict[pos.type],
+        "position": pos.ticket,
+        "price": price_dict[pos.type],
+        "deviation": 20,
+        "magic": MAGIC_NUMBER,
+        "comment": "PCTrading Close",
+        "type_time": mt5.ORDER_TIME_GTC,
+        "type_filling": mt5.ORDER_FILLING_IOC,
+    }
+    
+    res = mt5.order_send(request)
+    
+    if res is None: return False
+        
+    if res.retcode == mt5.TRADE_RETCODE_DONE:
+        logging.getLogger(symbol).info(f"💰 Order {pos.ticket} closed successfully")
+        send_trade_notification(symbol, "CLOSE", res.price, 0, pos.ticket)
+        
+        tracker = shared_state.ACTIVE_TRADE_TRACKER.get(pos.ticket, {"max_p": 0.0, "max_l": 0.0})
+
+        acc = mt5.account_info()
+        curr_bal = acc.balance if acc else 0.0
+        dbm.log_trade_exit(
+            ticket=pos.ticket, exit_price=res.price, net_profit=current_profit, 
+            max_float_p=tracker["max_p"], max_float_l=tracker["max_l"], # 🟢 2. ดึงค่าจาก tracker มาใส่ตรงนี้
+            exit_reason=reason, balance_after=curr_bal
+        )
+
+        if pos.ticket in shared_state.ACTIVE_TRADE_TRACKER:
+            del shared_state.ACTIVE_TRADE_TRACKER[pos.ticket]
+            
+        return True
+        
+    return False
+
+def check_daily_drawdown():
+    """ 📊 ฟังก์ชันเช็คยอดเงินและคำนวณ % ขาดทุนรายวัน """
+
+    current_day = datetime.now().day
+    if getattr(shared_state, 'CURRENT_DAY', None) != current_day:
+        shared_state.CURRENT_DAY = current_day
+        shared_state.INITIAL_EQUITY = 0.0
+        shared_state.IS_DAY_OFF = False
+        logging.getLogger("System").info("🌅 เช้าวันใหม่! รีเซ็ตสถานะ Day-Off กลับมาลุยตลาดต่อ")
+
+    if shared_state.IS_DAY_OFF:
+        return True 
+
+    account = mt5.account_info()
+    if account is None: return False
+    current_equity = account.equity
+
+    if shared_state.INITIAL_EQUITY == 0.0:
+        shared_state.INITIAL_EQUITY = current_equity
+        logging.getLogger("System").info(f"🏦 บันทึกทุนเริ่มต้นของวันนี้: {current_equity:.2f} USD")
+        return False
+
+    if current_equity < shared_state.INITIAL_EQUITY:
+        drawdown_usd = shared_state.INITIAL_EQUITY - current_equity
+        drawdown_pct = (drawdown_usd / shared_state.INITIAL_EQUITY) * 100
+
+        if drawdown_pct >= shared_state.MAX_DRAWDOWN_PERCENT:
+            logging.getLogger("System").warning(f"🚨 [EQUITY ALERT] ขาดทุนสะสม {drawdown_pct:.2f}% (เกินลิมิต {shared_state.MAX_DRAWDOWN_PERCENT}%)")
+            
+            close_all_positions()
+            
+            shared_state.IS_DAY_OFF = True
+            logging.getLogger("System").warning("🐢 บอทเข้าสู่ Day-Off Mode หยุดเทรดชั่วคราวจนกว่าจะถึงพรุ่งนี้!")
+            return True
+            
+    return False
+
+def close_all_positions():
+    """ 🚨 ฟังก์ชันล้างพอร์ต ปิดทุกออเดอร์ที่ค้างอยู่ทันที """
+    import MetaTrader5 as mt5
+    import logging
+    
+    positions = mt5.positions_get()
+    if positions is None or len(positions) == 0:
+        return True # ไม่มีออเดอร์ให้ปิด ถือว่าเคลียร์แล้ว
+        
+    logging.getLogger("System").warning(f"🚨 [KILL SWITCH] กำลังกวาดล้างปิดออเดอร์ทั้งหมด {len(positions)} ไม้!")
+    
+    for pos in positions:
+        tick = mt5.symbol_info_tick(pos.symbol)
+        if tick is None: continue
+        
+        # ถ้าถือ BUY ให้สั่ง SELL, ถ้าถือ SELL ให้สั่ง BUY
+        order_type = mt5.ORDER_TYPE_SELL if pos.type == mt5.ORDER_TYPE_BUY else mt5.ORDER_TYPE_BUY
+        price = tick.bid if pos.type == mt5.ORDER_TYPE_BUY else tick.ask
+        
+        request = {
+            "action": mt5.TRADE_ACTION_DEAL,
+            "position": pos.ticket,
+            "symbol": pos.symbol,
+            "volume": pos.volume,
+            "type": order_type,
+            "price": price,
+            "magic": pos.magic,
+            "comment": "DayOff Close",
+            "type_time": mt5.ORDER_TIME_GTC,
+            "type_filling": mt5.ORDER_FILLING_IOC,
+        }
+        mt5.order_send(request)
+    
+    return True
+
+def is_safe_trading_time(symbol):
+
+    if "BTC" in symbol.upper():
+        return True 
+        
+    from datetime import datetime, timedelta, time
+    import logging
+    
+    thai_time = datetime.utcnow() + timedelta(hours=7)
+    weekday = thai_time.weekday() # 0 = จันทร์, 5 = เสาร์, 6 = อาทิตย์
+    current_time = thai_time.time()
+
+    if weekday == 5 and current_time > time(3, 30):
+        return False
+        
+    if weekday == 6:
+        return False
+
+    if weekday == 0 and current_time < time(8, 0):
+
+        if current_time.minute % 30 == 0 and current_time.second < 10:
+            logging.getLogger(symbol).warning(f"⏳ ตลาดเพิ่งเปิดวันจันทร์ บอทรอให้กราฟนิ่ง 2 ชั่วโมง (เริ่ม 08:00 น.)")
+        return False
+        
+    return True
