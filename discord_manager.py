@@ -1,12 +1,14 @@
 import discord
-import MetaTrader5 as mt5
 import asyncio
 import os
 import sys
 import logging
+import sqlite3
 import shared_state
 import threading
 import ai_engine as ai
+import MetaTrader5 as mt5
+import advanced_indicators as adv
 import trade_manager as tm
 from bot_config import *
 from discord.ext import commands, tasks
@@ -72,31 +74,35 @@ def build_symbol_status(s):
 # ==========================================
 # 📝 ฟังก์ชันส่ง Report รูปแบบต่างๆ
 # ==========================================
-async def send_startup_report():
-    channel = bot.get_channel(int(REPORT_CHANNEL_ID))
-    if not channel: return
-
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    acc = mt5.account_info()
-    balance = f"{acc.balance:,.2f}" if acc else "0.00"
-
-    msg = f"📊 **[Starting PCTrading 2.0]**\n⏰ **[Time: {now_str}]**\n-----------------------------------\n"
-    
-    for s in SYMBOLS_CONFIG:
-        msg += build_symbol_status(s) + "\n"
-
-    ai_status = "✅ Online" if getattr(ai, 'AI_IS_ONLINE', False) else f"❌ Error {getattr(ai, 'AI_ERROR_CODE', '')}"
-    
-    msg += f"🔌 **System Connection**\nMT5: ✅ Connected\nAI: {ai_status}\nDiscord: ✅ Online\n-----------------------------------\n"
-    msg += f"💵 **Current Balance:** `{balance} USD`"
-    
-    await channel.send(msg)
+def get_today_db_stats(symbol=None):
+    """ดึงยอดเทรดที่ปิดแล้วของวันนี้ จาก Database"""
+    try:
+        from database_manager import DB_NAME
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        
+        if symbol:
+            cursor.execute("SELECT COUNT(*), SUM(net_profit) FROM trade_history WHERE symbol=? AND exit_time LIKE ?", (symbol, f"{today_str}%"))
+        else:
+            cursor.execute("SELECT COUNT(*), SUM(net_profit) FROM trade_history WHERE exit_time LIKE ?", (f"{today_str}%",))
+            
+        res = cursor.fetchone()
+        conn.close()
+        
+        count = res[0] if res and res[0] else 0
+        profit = res[1] if res and res[1] else 0.0
+        return count, profit
+    except Exception as e:
+        return 0, 0.0
 
 async def send_closing_report(channel=None):
     if not channel:
+        from bot_config import REPORT_CHANNEL_ID
         channel = bot.get_channel(int(REPORT_CHANNEL_ID))
     if not channel: return
 
+    import MetaTrader5 as mt5
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     acc = mt5.account_info()
     balance = f"{acc.balance:,.2f}" if acc else "0.00"
@@ -105,11 +111,13 @@ async def send_closing_report(channel=None):
     
     total_deals = 0
     total_profit = 0.0
+    
+    from bot_config import SYMBOLS_CONFIG
 
     for s in SYMBOLS_CONFIG:
         deals = get_today_deals(s)
-        count = len(deals)
-        profit = sum(d.profit for d in deals)
+        count = len(deals) if deals else 0
+        profit = sum(d.profit for d in deals) if deals else 0.0
         total_deals += count
         total_profit += profit
         
@@ -125,52 +133,101 @@ async def send_closing_report(channel=None):
 async def send_status_report(title="[Status Report]"):
     channel = bot.get_channel(int(REPORT_CHANNEL_ID))
     if not channel: return
-
+    
+    # 1. ดึงข้อมูลพอร์ตโดยรวม
     acc = mt5.account_info()
-    balance = f"{acc.balance:,.2f}" if acc else "0.00"
-    deals = get_today_deals()
-    total_profit = sum(d.profit for d in deals)
-    total_icon = "🟢" if total_profit >= 0 else "🔴"
-
-    msg = f"📊 **{title}**\n-----------------------------------\n"
-    for s in SYMBOLS_CONFIG:
-        msg += build_symbol_status(s) + "\n"
-
+    curr_bal = acc.balance if acc else 0.0
     
-    msg += f"💰 **Total P/L :**\n📦 Closed : `{len(deals)} Order`\n{total_icon} P/L : `{total_profit:.2f} USD`\n-----------------------------------\n"
-    msg += f"💰 **Total Daily P/L :** `{total_profit:.2f} USD`\n💵 **Current Balance:** `{balance} USD`\n-----------------------------------\n"
+    positions = mt5.positions_get()
+    unrealized_pl = sum([(p.profit + p.swap) for p in positions]) if positions else 0.0
+    total_closed_count, total_net_profit = get_today_db_stats()
     
-    state = shared_state.BOT_STATE
+    # 2. เริ่มสร้างข้อความ
+    msg = f"📊 **{title}**\n========================\n"
+    
+    # 3. ลูปดึงข้อมูลแต่ละคู่เงิน
+    for symbol, strat in ai.STRATEGY_DATA.items():
+        if not strat: continue
+        
+        # เช็ค Market Open/Close
+        tick = mt5.symbol_info_tick(symbol)
+        is_open = "🟢" if tick and (datetime.now().timestamp() - tick.time < 300) else "🔴"
+        
+        # ดึง RSI
+        rsi_text = "N/A"
+        rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M5, 0, 15)
+        if rates is not None and len(rates) > 0:
+            prices = [r['close'] for r in rates]
+            rsi_val = adv.calculate_rsi(prices)
+            if rsi_val: rsi_text = f"{rsi_val[-1]:.2f}"
+            
+        # ดึงสถิติรายคู่เงิน
+        sym_count, sym_profit = get_today_db_stats(symbol)
+        
+        msg += f"{is_open} **{symbol}** `[{strat.get('regime', 'N/A')}]`\n"
+        msg += f"🛡️ Risk : `{shared_state.CURRENT_RISK_LEVEL}/5`\n"
+        msg += f"📈 Current RSI : `{rsi_text}`\n"
+        msg += f"📦 Trades : `{sym_profit:+.2f} USD` `[{sym_count} Orders]`\n"
 
-    risk = shared_state.CURRENT_RISK_LEVEL
-    msg += f"📊 **Current Risk Profile:** `Level {risk}/5`"
+    msg += "========================\n"
+    
+    # 4. สรุปยอดรวม
+    unrealized_icon = "🟢" if unrealized_pl >= 0 else "🔴"
+    net_icon = "🟢" if total_net_profit >= 0 else "🔴"
+    
+    msg += f"💰 **Today's P/L (Unrealized) :** `{unrealized_icon} {unrealized_pl:+.2f} USD`\n"
+    msg += f"📦 Closed Trades : `{total_closed_count} Orders`\n"
+    msg += f"**Net Profit :** `{net_icon} {total_net_profit:+.2f} USD`\n"
+    msg += f"💵 **Current Balance:** `{curr_bal:.2f} USD`\n"
+    msg += "========================\n"
+    
+    # 5. สรุปสถานะระบบ
+    sys_state = shared_state.BOT_STATE
+    if sys_state == "COOLDOWN":
+        sys_state = f"Cooldown ({shared_state.COOLDOWN_REMAINING}m)"
+        
+    mt5_status = "✅ Connected" if mt5.terminal_info() else "❌ Disconnected"
+    ai_status = "✅ Online" if ai.AI_IS_ONLINE else "❌ Offline"
+    
+    msg += f"🔌 **System Connection** `[{sys_state}]`\n"
+    msg += f"MT5: {mt5_status} `({getattr(shared_state, 'MT5_DISCONNECT_COUNT', 0)})`\n"
+    msg += f"AI: {ai_status} `({getattr(shared_state, 'AI_DISCONNECT_COUNT', 0)})`\n"
+    msg += f"Discord: ✅ Online `({getattr(shared_state, 'DISCORD_DISCONNECT_COUNT', 0)})`\n"
 
-    if state == "RUNNING":
-        msg += "✅ **Running**"
-    elif state == "COOLDOWN":
-        msg += f"⚠️ **Cooldown (Cooldown: {shared_state.COOLDOWN_REMAINING}m)**"
-    else:
-        msg += f"🛑 **Status :** `{state}`"
-
-    await channel.send(msg)
+    try:
+        await channel.send(msg)
+    except Exception as e:
+        import logging
+        logging.getLogger("System").error(f"❌ ส่ง Report ไม่ได้: {e}")
 
 # ==========================================
 # ⏰ ระบบ Report อัตโนมัติ (Task Loops)
 # ==========================================
-@tasks.loop(minutes=30)
-async def auto_report_job():
-    if shared_state.BOT_STATE in ["RUNNING", "COOLDOWN"]:
-        await send_status_report()
-
 @tasks.loop(minutes=1)
-async def half_day_report_job():
+async def scheduled_reports():
+    global LAST_REPORT_HOUR
+    
+    # ถ้าบอทไม่ได้เปิดรันอยู่ ไม่ต้องส่ง Report
+    if shared_state.BOT_STATE not in ["RUNNING", "COOLDOWN"]: 
+        return
+        
     now = datetime.now()
-    if now.minute == 0 and now.hour in [6, 18]:
-        part = "เช้า" if now.hour == 6 else "เย็น"
-        await send_status_report(title=f"[Half-Day Report ({part})]")
+    
+    # 🟢 ถ้าเข็มยาวชี้เลข 12 (นาทีที่ 00) และยังไม่ได้ส่งของชั่วโมงนี้
+    if now.minute == 0 and now.hour != LAST_REPORT_HOUR:
+        LAST_REPORT_HOUR = now.hour # จดไว้ว่าส่งของชั่วโมงนี้แล้ว
+        
+        if now.hour == 0:
+            await send_status_report("[End-Day Report]")
+        elif now.hour == 12:
+            await send_status_report("[Half-Day Report]")
+        elif now.hour == 18:
+            await send_status_report("[Normal Working Hours Report]")
+        elif now.hour in [3, 6, 9, 15, 21]:
+            await send_status_report("[Status Report]")
 
-@half_day_report_job.before_loop
-async def before_half_day():
+@scheduled_reports.before_loop
+async def before_scheduled_reports():
     await bot.wait_until_ready()
 
 # ==========================================

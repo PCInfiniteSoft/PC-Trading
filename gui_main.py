@@ -14,7 +14,7 @@ import ui_components as uic
 from datetime import datetime, timezone
 from discord.ext import tasks
 from bot_config import *
-from discord_manager import bot, auto_report_job, half_day_report_job, get_win_loss_text, send_startup_report
+from discord_manager import bot, scheduled_reports, get_win_loss_text, send_startup_report
 
 app_instance = None 
 
@@ -22,10 +22,9 @@ app_instance = None
 async def on_ready():
     logging.getLogger("System").info("✅ Discord Bot Online")
     if not tm.trading_job.is_running(): tm.trading_job.start()
-    if not auto_report_job.is_running(): auto_report_job.start()
-    if not half_day_report_job.is_running(): half_day_report_job.start()
+    if not scheduled_reports.is_running(): scheduled_reports.start()
     if mt5.terminal_info() is not None and app_instance is not None:
-        app_instance.after(0, app_instance.start_bot) 
+        app_instance.after(0, app_instance.start_bot)
 
 
 class PCTradingApp(ctk.CTk):

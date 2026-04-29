@@ -132,7 +132,7 @@ async def trading_job():
             if ticket not in shared_state.ACTIVE_TRADE_TRACKER:
                 shared_state.ACTIVE_TRADE_TRACKER[ticket] = {"max_p": 0.0, "max_l": 0.0}
                 
-            current_p = pos.profit + pos.swap + pos.commission
+            current_p = pos.profit + pos.swap
                 
             if current_p > shared_state.ACTIVE_TRADE_TRACKER[ticket]["max_p"]:
                 shared_state.ACTIVE_TRADE_TRACKER[ticket]["max_p"] = current_p
@@ -146,7 +146,7 @@ async def trading_job():
         if acc:
             eq = acc.equity
             pos_count = len(positions) if positions else 0
-            float_pl = sum([(p.profit + p.swap + p.commission) for p in positions]) if positions else 0.0
+            float_pl = sum([(p.profit + p.swap) for p in positions]) if positions else 0.0
             
             state_str = shared_state.BOT_STATE
             if state_str == "COOLDOWN":
