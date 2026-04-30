@@ -350,8 +350,14 @@ def close_all_positions():
     import logging
     
     positions = mt5.positions_get()
-    if positions is None or len(positions) == 0:
-        return True # ไม่มีออเดอร์ให้ปิด ถือว่าเคลียร์แล้ว
+    current_tickets = []
+    if positions:
+        for pos in positions:
+            ticket = pos.ticket
+            current_tickets.append(ticket) # 🟢 เก็บตั๋วใส่กระเป๋า
+            
+            if ticket not in shared_state.ACTIVE_TRADE_TRACKER:
+                shared_state.ACTIVE_TRADE_TRACKER[ticket] = {"max_p": 0.0, "max_l": 0.0}
         
     logging.getLogger("System").warning(f"🚨 [KILL SWITCH] กำลังกวาดล้างปิดออเดอร์ทั้งหมด {len(positions)} ไม้!")
     

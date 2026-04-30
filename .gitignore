@@ -1,4 +1,9 @@
 # Byte-compiled / optimized / DLL files
+settings.txt
+__pycache__/
+Logs/
+*.db
+bot_status.json
 .venv/
 __pycache__/
 *.pyc
