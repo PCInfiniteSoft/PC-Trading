@@ -1,14 +1,11 @@
 # Byte-compiled / optimized / DLL files
-backup/
-settings.txt
+
 __pycache__/
-Logs/
+/Logs/
 *.db
 bot_status.json
 .venv/
-__pycache__/
 *.pyc
-__pycache__/
 *.py[codz]
 *$py.class
 
@@ -34,6 +31,11 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+/__pycache__/
+__pycache__/
+/backup/
+backup/
+settings.txt
 
 # PyInstaller
 #   Usually these files are written by a python script from a template
