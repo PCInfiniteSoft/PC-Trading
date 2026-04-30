@@ -42,7 +42,13 @@ async def trading_job():
                     return
         return
 
-    if not mt5.initialize(login=ACCOUNT_ID, password=PWD, server=SRV): return
+    if not mt5.initialize(login=ACCOUNT_ID, password=PWD, server=SRV): 
+        if not getattr(shared_state, 'IS_MT5_DOWN', False):
+            shared_state.MT5_DISCONNECT_COUNT = getattr(shared_state, 'MT5_DISCONNECT_COUNT', 0) + 1
+            shared_state.IS_MT5_DOWN = True
+        return
+    else:
+        shared_state.IS_MT5_DOWN = False
     
     now = datetime.now()
     now_time = now.time()
@@ -66,7 +72,7 @@ async def trading_job():
     if shared_state.CURRENT_LOOP_MINS == 1:
         is_ai_update_turn = True
     else:
-        is_ai_update_turn = (shared_state.SCAN_COUNT % 5 == 1)        
+        is_ai_update_turn = (now.minute % 5 == 0)     
     
     if is_ai_update_turn and not ai.AI_IS_ONLINE:
         shared_state.AI_RETRY_COUNT = getattr(shared_state, 'AI_RETRY_COUNT', 0) + 1
@@ -78,6 +84,7 @@ async def trading_job():
         shared_state.BOT_STATE = "COOLDOWN"
         shared_state.COOLDOWN_REMAINING = 30
         shared_state.AI_RETRY_COUNT = 0 
+        shared_state.AI_DISCONNECT_COUNT = getattr(shared_state, 'AI_DISCONNECT_COUNT', 0) + 1
         logging.getLogger("System").error("🚨 สัญญาณ AI ขาดหายเกิน 5 นาที! เข้าสู่โหมดจำศีลเพื่อความปลอดภัย")
         return
 
@@ -208,6 +215,21 @@ async def trading_job():
         
     sutils.save_web_status()
 
+@trading_job.before_loop
+async def before_trading_job():
+    """ 🟢 ฟังก์ชันนี้จะทำงานแค่ครั้งเดียวตอนกด Start เพื่อหน่วงเวลาให้ตรงกับวินาทีที่ 00 """
+    import asyncio
+    from datetime import datetime
+    import logging
+    
+    now = datetime.now()
+    sleep_seconds = 60 - now.second - (now.microsecond / 1_000_000.0)
+
+    if sleep_seconds < 60:
+        logging.getLogger("System").info(f"⏳ กำลังหน่วงเวลา {sleep_seconds:.2f} วินาที เพื่อซิงค์รอบสแกนให้ตรงกับหน้าปัดนาฬิกา...")
+        await asyncio.sleep(sleep_seconds)
+        logging.getLogger("System").info("🎯 ซิงค์เวลาหน้าปัดนาฬิกาสำเร็จ! เริ่มสแกนตลาดได้!")
+
 @trading_job.error
 async def trading_job_error(exc):
     import traceback
@@ -238,6 +260,7 @@ def place_order(symbol, type, price, rsi, comment):
     safe_comment = raw_comment[:25]
 
     # 🟢 [ระบบใหม่] คำนวณ SL / TP แบบ Dynamic (% จากราคาปัจจุบัน)
+    # ป้องกันการตั้ง SL แคบเกินไปจนโดน Spread / ข่าว สะบัดกินฟรี
     risk_level = getattr(shared_state, 'CURRENT_RISK_LEVEL', 3)
     
     # ฐานความกว้าง = 0.1% ของราคา (เช่น ทอง 4500 = ห่าง 4.5$, BTC 75000 = ห่าง 75$)
@@ -245,7 +268,7 @@ def place_order(symbol, type, price, rsi, comment):
     
     # ยืดหยุ่นตาม Risk (Risk 1-2 ทนลากได้เยอะ SL กว้าง / Risk 4-5 เจ็บสั้น SL แคบลง)
     sl_pct = base_pct * (1.0 + (3 - risk_level) * 0.2) 
-    tp_pct = sl_pct * 1.5 
+    tp_pct = sl_pct * 1.5 # ตั้ง TP ให้กว้างกว่า SL 1.5 เท่า (Risk:Reward = 1:1.5)
     
     sl_dist = price * sl_pct
     tp_dist = price * tp_pct
@@ -269,8 +292,8 @@ def place_order(symbol, type, price, rsi, comment):
         "volume": lot,
         "type": mt5.ORDER_TYPE_BUY if type == "BUY" else mt5.ORDER_TYPE_SELL,
         "price": price,
-        "sl": sl_price, 
-        "tp": tp_price, 
+        "sl": sl_price, # 🛡️ ส่ง SL แบบใหม่ไปตั้งค่าที่โบรกเกอร์
+        "tp": tp_price, # 🎯 ส่ง TP แบบใหม่ไปตั้งค่าที่โบรกเกอร์
         "magic": MAGIC_NUMBER,
         "comment": safe_comment,
         "type_time": mt5.ORDER_TIME_GTC,
@@ -285,7 +308,7 @@ def place_order(symbol, type, price, rsi, comment):
         return False
         
     if res.retcode == mt5.TRADE_RETCODE_DONE:
-        slippage = abs(res.price - price) / symbol_info.point
+        slippage = abs(res.price - price) / mt5.symbol_info(symbol).point
         logging.getLogger(symbol).info(f"✅ {type} {symbol} {lot} lots at {price} (RSI: {rsi:.2f}) | {comment}")
         send_trade_notification(symbol, type, price, rsi, res.order)
         strat = ai.STRATEGY_DATA.get(symbol, {})
