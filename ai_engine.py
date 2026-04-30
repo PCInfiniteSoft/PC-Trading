@@ -68,8 +68,13 @@ async def ai_update_strategy(symbol, win_loss_stats="N/A"):
               f"🚨 LATEST HIGH-IMPACT NEWS: {news_text}. "
               f"Consider this news for market regime and volatility anticipation. "
               f"CRITICAL RULE: 'buy_levels' and 'sell_levels' MUST strictly be RSI values (between 0 and 100). DO NOT return actual price levels. "
-              f"Provide JSON: {{\"buy_levels\": [5 floats], \"sell_levels\": [5 floats], "
-              f"\"regime\": \"string\", \"spike_threshold\": float}}")
+              f"Also, analyze volatility to provide dynamic risk management parameters. "
+              f"Provide JSON: {{"
+              f"\"buy_levels\": [5 floats], \"sell_levels\": [5 floats], "
+              f"\"regime\": \"string\", \"spike_threshold\": float, "
+              f"\"tp_activation\": float, \"pullback_pct\": float, "
+              f"\"be_activation\": float, \"be_lock_profit\": float"
+              f"}}")
 
     if getattr(shared_state, 'CURRENT_LOOP_MINS', 5) == 1:
         prompt += "\n\n🚨 [NEWS WINDOW ACTIVE]: We are currently within the 20-minute window of a high-impact news release! Expect extreme volatility and fakeouts. You MUST widen your RSI layers to be extremely safe, or set levels to impossible values (e.g., Buy 0, Sell 100) if it's too dangerous to trade."
@@ -99,9 +104,13 @@ async def ai_update_strategy(symbol, win_loss_stats="N/A"):
         STRATEGY_DATA[symbol]["sell"] = sorted(data['sell_levels'])
         STRATEGY_DATA[symbol]["regime"] = data['regime']
         STRATEGY_DATA[symbol]["threshold"] = float(data.get('spike_threshold', 0.5))
+        STRATEGY_DATA[symbol]["tp_activation"] = float(data.get('tp_activation', 3.0))
+        STRATEGY_DATA[symbol]["pullback_pct"] = float(data.get('pullback_pct', 0.30))
+        STRATEGY_DATA[symbol]["be_activation"] = float(data.get('be_activation', 1.50))
+        STRATEGY_DATA[symbol]["be_lock_profit"] = float(data.get('be_lock_profit', 0.20))
         
         logging.getLogger(symbol).info(
-            f"🔄 [STRATEGY 2.2] {symbol} | W/L: {win_loss_stats} | Threshold: {STRATEGY_DATA[symbol]['threshold']:.2f}")
+            f"🔄 [STRATEGY 2.2] {symbol} | W/L: {win_loss_stats} | Threshold: {STRATEGY_DATA[symbol]['threshold']:.2f} | DynRisk: ON")
         return True
 
     except Exception as e:
@@ -117,7 +126,7 @@ async def ai_check_cooldown(symbol, prices, volumes):
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
-            timeout=20.0 # 🟢 กันค้าง
+            timeout=20.0 
         )
         return json.loads(response.choices[0].message.content)
     except: 

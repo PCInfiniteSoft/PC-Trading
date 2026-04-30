@@ -137,6 +137,7 @@ async def trading_job():
     if positions:
         for pos in positions:
             ticket = pos.ticket
+            symbol = pos.symbol
             current_tickets.append(ticket)
             
             if ticket not in shared_state.ACTIVE_TRADE_TRACKER:
@@ -144,11 +145,40 @@ async def trading_job():
                 
             current_p = pos.profit + pos.swap
                 
+            # 1.1 อัปเดตจุดสูงสุด/ต่ำสุดที่เคยทำได้
             if current_p > shared_state.ACTIVE_TRADE_TRACKER[ticket]["max_p"]:
                 shared_state.ACTIVE_TRADE_TRACKER[ticket]["max_p"] = current_p
                 
             if current_p < shared_state.ACTIVE_TRADE_TRACKER[ticket]["max_l"]:
                 shared_state.ACTIVE_TRADE_TRACKER[ticket]["max_l"] = current_p
+
+            # ==========================================
+            # 🏃‍♂️💨 1.2 ระบบ Trailing Profit & Break-Even (ควบคุมโดย AI 100%)
+            # ==========================================
+            max_profit = shared_state.ACTIVE_TRADE_TRACKER[ticket]["max_p"]
+            
+            # 🤖 ดึงกลยุทธ์จากสมอง AI ประจำคู่เงินนั้นๆ (ซึ่งจะถูกอัปเดตใหม่ทุก 5 นาที)
+            strat = ai.STRATEGY_DATA.get(symbol, {})
+            
+            # ⚙️ รับค่า Dynamic จาก AI (ถ้าช่วงไหน AI เออเร่อหรือตอบไม่ครบ จะใช้ค่า Default ด้านหลังสุดกันเหนียวไว้)
+            TP_ACTIVATION = strat.get("tp_activation", 3.0)     
+            PULLBACK_PCT = strat.get("pullback_pct", 0.30)      
+            BE_ACTIVATION = strat.get("be_activation", 1.50)    
+            BE_LOCK_PROFIT = strat.get("be_lock_profit", 0.20)  
+
+            # 🛡️ เกราะชั้นใน: เช็ค Trailing Profit (กำไรทะลุเป้าที่ AI วางไว้ แล้วย่อตัว)
+            if max_profit >= TP_ACTIVATION:
+                lock_profit_line = max_profit * (1.0 - PULLBACK_PCT)
+                if current_p <= lock_profit_line:
+                    logging.getLogger(symbol).warning(f"🏃‍♂️💨 AI Trailing Profit ทำงาน! (Max: +{max_profit:.2f}$ ย่อเหลือ +{current_p:.2f}$) ตัดจบ!")
+                    close_one_order(symbol, reason="AI Trailing Profit 🏃‍♂️💨")
+                    continue # ปิดแล้วให้ข้ามไปเช็คไม้ถัดไปเลย
+                    
+            # 🛡️ เกราะชั้นนอก: เช็ค Break-Even (วิ่งไปถึงเป้าแรกของ AI แล้วโดนทุบกลับ)
+            elif max_profit >= BE_ACTIVATION:
+                if current_p <= BE_LOCK_PROFIT:
+                    logging.getLogger(symbol).warning(f"🛡️ AI Break-Even บังทุนทำงาน! (Max: +{max_profit:.2f}$ ร่วงมาเหลือ +{current_p:.2f}$) ปิดเจ๊า!")
+                    close_one_order(symbol, reason="AI Break-Even 🛡️")
 
     # ==========================================
     # 🟢 2. ระบบตามเก็บตกไม้ที่ถูกโบรคเกอร์ปิด (ชน SL/TP)
