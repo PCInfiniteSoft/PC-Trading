@@ -126,9 +126,12 @@ async def trading_job():
                     shared_state.TRADE_LAYERS.setdefault(s, {"buy":[False]*5, "sell":[False]*5})["sell"][i] = True
 
     positions = mt5.positions_get()
+    current_tickets = []
     if positions:
         for pos in positions:
             ticket = pos.ticket
+            current_tickets.append(ticket)
+            
             if ticket not in shared_state.ACTIVE_TRADE_TRACKER:
                 shared_state.ACTIVE_TRADE_TRACKER[ticket] = {"max_p": 0.0, "max_l": 0.0}
                 
@@ -139,6 +142,39 @@ async def trading_job():
                 
             if current_p < shared_state.ACTIVE_TRADE_TRACKER[ticket]["max_l"]:
                 shared_state.ACTIVE_TRADE_TRACKER[ticket]["max_l"] = current_p
+
+    # ==========================================
+    # 🟢 2. ระบบตามเก็บตกไม้ที่ถูกโบรคเกอร์ปิด (ชน SL/TP)
+    # ==========================================
+    closed_tickets = []
+    for ticket in list(shared_state.ACTIVE_TRADE_TRACKER.keys()):
+        if ticket not in current_tickets:
+            closed_tickets.append(ticket)
+            
+    for ticket in closed_tickets:
+        now = datetime.now()
+        start_of_day = datetime(now.year, now.month, now.day)
+        deals = mt5.history_deals_get(start_of_day, now, group="*")
+        
+        if deals:
+            exit_deals = [d for d in deals if d.position_id == ticket and d.entry == mt5.DEAL_ENTRY_OUT]
+            if exit_deals:
+                exit_deal = exit_deals[-1]
+                net_profit = exit_deal.profit + exit_deal.swap
+                tracker = shared_state.ACTIVE_TRADE_TRACKER[ticket]
+                
+                acc = mt5.account_info()
+                curr_bal = acc.balance if acc else 0.0
+                reason = "Hit Take Profit 🎯" if exit_deal.profit > 0 else "Hit Stop Loss 🛡️"
+                
+                dbm.log_trade_exit(
+                    ticket=ticket, exit_price=exit_deal.price, net_profit=net_profit,
+                    max_float_p=tracker["max_p"], max_float_l=tracker["max_l"],
+                    exit_reason=reason, balance_after=curr_bal
+                )
+                logging.getLogger("System").info(f"📝 ตามเก็บ Record ที่ถูกโบรคเกอร์ปิดลง DB: ตั๋ว {ticket} ({reason})")
+        
+        del shared_state.ACTIVE_TRADE_TRACKER[ticket]
 
     try:
         acc = mt5.account_info()
@@ -201,22 +237,31 @@ def place_order(symbol, type, price, rsi, comment):
     raw_comment = str(comment).replace('\n', ' ').replace('\r', '').strip()
     safe_comment = raw_comment[:25]
 
-    # 🟢 คำนวณ SL / TP เป็นตัวเลขราคา เพื่อส่งไปฝังที่เซิร์ฟเวอร์
+    # 🟢 [ระบบใหม่] คำนวณ SL / TP แบบ Dynamic (% จากราคาปัจจุบัน)
+    risk_level = getattr(shared_state, 'CURRENT_RISK_LEVEL', 3)
+    
+    # ฐานความกว้าง = 0.1% ของราคา (เช่น ทอง 4500 = ห่าง 4.5$, BTC 75000 = ห่าง 75$)
+    base_pct = 0.001 
+    
+    # ยืดหยุ่นตาม Risk (Risk 1-2 ทนลากได้เยอะ SL กว้าง / Risk 4-5 เจ็บสั้น SL แคบลง)
+    sl_pct = base_pct * (1.0 + (3 - risk_level) * 0.2) 
+    tp_pct = sl_pct * 1.5 
+    
+    sl_dist = price * sl_pct
+    tp_dist = price * tp_pct
+
+    if type == "BUY":
+        sl_price = price - sl_dist
+        tp_price = price + tp_dist
+    else: # SELL
+        sl_price = price + sl_dist
+        tp_price = price - tp_dist
+
+    # ปรับทศนิยมให้ถูกต้องตามมาตรฐานของโบรคเกอร์
     symbol_info = mt5.symbol_info(symbol)
     if symbol_info is None: return False
-    point = symbol_info.point
-    
-    sl_pts = SYMBOLS_CONFIG[symbol].get("sl_pts", 0)
-    tp_pts = SYMBOLS_CONFIG[symbol].get("tp_pts", 0)
-    
-    sl_price, tp_price = 0.0, 0.0
-    if sl_pts > 0 or tp_pts > 0:
-        if type == "BUY":
-            sl_price = price - (sl_pts * point) if sl_pts > 0 else 0.0
-            tp_price = price + (tp_pts * point) if tp_pts > 0 else 0.0
-        else: # SELL
-            sl_price = price + (sl_pts * point) if sl_pts > 0 else 0.0
-            tp_price = price - (tp_pts * point) if tp_pts > 0 else 0.0
+    sl_price = round(sl_price, symbol_info.digits)
+    tp_price = round(tp_price, symbol_info.digits)
 
     request = {
         "action": mt5.TRADE_ACTION_DEAL,
@@ -224,8 +269,8 @@ def place_order(symbol, type, price, rsi, comment):
         "volume": lot,
         "type": mt5.ORDER_TYPE_BUY if type == "BUY" else mt5.ORDER_TYPE_SELL,
         "price": price,
-        "sl": sl_price, # 🛡️ ส่ง SL ไปตั้งค่าที่โบรกเกอร์
-        "tp": tp_price, # 🎯 ส่ง TP ไปตั้งค่าที่โบรกเกอร์
+        "sl": sl_price, 
+        "tp": tp_price, 
         "magic": MAGIC_NUMBER,
         "comment": safe_comment,
         "type_time": mt5.ORDER_TIME_GTC,
@@ -240,7 +285,7 @@ def place_order(symbol, type, price, rsi, comment):
         return False
         
     if res.retcode == mt5.TRADE_RETCODE_DONE:
-        slippage = abs(res.price - price) / mt5.symbol_info(symbol).point
+        slippage = abs(res.price - price) / symbol_info.point
         logging.getLogger(symbol).info(f"✅ {type} {symbol} {lot} lots at {price} (RSI: {rsi:.2f}) | {comment}")
         send_trade_notification(symbol, type, price, rsi, res.order)
         strat = ai.STRATEGY_DATA.get(symbol, {})
@@ -248,7 +293,7 @@ def place_order(symbol, type, price, rsi, comment):
             ticket=res.order, symbol=symbol, order_type=type, lot_size=lot, 
             entry_price=res.price, entry_reason=comment, slippage=slippage,
             rsi_entry=rsi, market_regime=strat.get("regime", "N/A"),
-            vol_thresh=strat.get("threshold", 0.0), risk_level=shared_state.CURRENT_RISK_LEVEL
+            vol_thresh=strat.get("threshold", 0.0), risk_level=risk_level
         )
         shared_state.ACTIVE_TRADE_TRACKER[res.order] = {"max_p": 0.0, "max_l": 0.0}
         return True
