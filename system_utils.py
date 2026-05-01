@@ -1,11 +1,11 @@
 import json
 import MetaTrader5 as mt5
 import ai_engine as ai
-import trade_manager as tm
 import shared_state
 from bot_config import SYMBOLS_CONFIG
 
 def save_web_status():
+    import trade_manager as tm
     status_data = {
         "state": shared_state.BOT_STATE,
         "balance": mt5.account_info().balance if mt5.account_info() else 0,

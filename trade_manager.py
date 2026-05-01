@@ -103,7 +103,8 @@ async def trading_job():
                 has_spike = True
             
             await ai.ai_update_strategy(s, get_win_loss_text())
-            shared_state.TRADE_LAYERS[s] = {"buy": [False]*5, "sell": [False]*5}
+            if not mt5.positions_get(symbol=s):
+                shared_state.TRADE_LAYERS[s] = {"buy": [False]*5, "sell": [False]*5}
 
         strat = ai.STRATEGY_DATA[s]
 
@@ -116,17 +117,69 @@ async def trading_job():
             logging.getLogger("System").error(f"🚨 บล็อกการเทรด {s}: AI ส่งเป้าหมายราคา ({safe_buy}) แทน RSI!")
             continue
 
+        positions = mt5.positions_get(symbol=s)
+        has_buy = False
+        has_sell = False
+        buy_tickets = []
+        sell_tickets = []
+        
+        if positions:
+            for p in positions:
+                if p.type == mt5.ORDER_TYPE_BUY:
+                    has_buy = True
+                    buy_tickets.append(p.ticket)
+                elif p.type == mt5.ORDER_TYPE_SELL:
+                    has_sell = True
+                    sell_tickets.append(p.ticket)
+
+        # 🎯 2. ลูปยิงออเดอร์ (รองรับทั้ง 2 ฝั่ง)
         for i in range(5):
-            if rsi < strat['buy'][i] and not shared_state.TRADE_LAYERS.get(s, {}).get("buy", [False]*5)[i]:
-                if ai.AI_IS_ONLINE:
-                    tick = mt5.symbol_info_tick(s)
-                    if tick is None: continue
-                    st_data = adv.get_3_indicators(s) 
-                    ans = await ai.ai_analysis(s, tick.ask, rsi, st_data)
+            
+            # ==========================================
+            # 📉 ฝั่งขาลง: RSI ลงมาโซน Oversold (หาจังหวะ BUY หรือ ปิด SELL)
+            # ==========================================
+            if rsi < strat['buy'][i]:
+                # ก. ปิดทำกำไรไม้ SELL ที่ถืออยู่ (เพราะกราฟลงมาถึงเป้าแล้ว)
+                if has_sell:
+                    for t in sell_tickets:
+                        close_one_order(symbol=s, reason="RSI Hit Buy Target (TP) 🎯", ticket=t)
+                    has_sell = False # ปิดเสร็จอัปเดตสถานะพอร์ต
                     
-                    if ans.get('decision') == "BUY":
-                        if place_order(s, "BUY", tick.ask, rsi, f"L{i+1}:{ans['reason']}"): 
-                            shared_state.TRADE_LAYERS.setdefault(s, {"buy":[False]*5, "sell":[False]*5})["buy"][i] = True
+                # ข. เปิดไม้ BUY สวนขึ้นไป (ส่งให้ AI ยืนยัน)
+                if not shared_state.TRADE_LAYERS.get(s, {}).get("buy", [False]*5)[i]:
+                    if ai.AI_IS_ONLINE:
+                        tick = mt5.symbol_info_tick(s)
+                        if tick is not None:
+                            st_data = adv.get_3_indicators(s) 
+                            ans = await ai.ai_analysis(s, tick.ask, rsi, st_data) # ขา Buy ใช้ tick.ask
+                            
+                            if ans.get('decision') == "BUY":
+                                if place_order(s, "BUY", tick.ask, rsi, f"L{i+1}:{ans.get('reason', '')[:18]}"): 
+                                    shared_state.TRADE_LAYERS.setdefault(s, {"buy":[False]*5, "sell":[False]*5})["buy"][i] = True
+                                    has_buy = True
+
+            # ==========================================
+            # 📈 ฝั่งขาขึ้น: RSI พุ่งขึ้นโซน Overbought (หาจังหวะ SELL หรือ ปิด BUY)
+            # ==========================================
+            if rsi > strat['sell'][i]:
+                # ก. ปิดทำกำไรไม้ BUY ที่ถืออยู่ (เพราะกราฟพุ่งขึ้นมาชนเป้าแล้ว)
+                if has_buy:
+                    for t in buy_tickets:
+                        close_one_order(symbol=s, reason="RSI Hit Sell Target (TP) 🎯", ticket=t)
+                    has_buy = False # ปิดเสร็จอัปเดตสถานะพอร์ต
+
+                # ข. เปิดไม้ SELL สวนลงมา (ส่งให้ AI ยืนยัน)
+                if not shared_state.TRADE_LAYERS.get(s, {}).get("sell", [False]*5)[i]:
+                    if ai.AI_IS_ONLINE:
+                        tick = mt5.symbol_info_tick(s)
+                        if tick is not None:
+                            st_data = adv.get_3_indicators(s) 
+                            ans = await ai.ai_analysis(s, tick.bid, rsi, st_data) # ขา Sell ต้องใช้ tick.bid
+                            
+                            if ans.get('decision') == "SELL":
+                                if place_order(s, "SELL", tick.bid, rsi, f"L{i+1}:{ans.get('reason', '')[:18]}"): 
+                                    shared_state.TRADE_LAYERS.setdefault(s, {"buy":[False]*5, "sell":[False]*5})["sell"][i] = True
+                                    has_sell = True
 
             if mt5.positions_get(symbol=s) and rsi > strat['sell'][i] and not shared_state.TRADE_LAYERS.get(s, {}).get("sell", [False]*5)[i]:
                 if close_one_order(s): 
@@ -171,14 +224,14 @@ async def trading_job():
                 lock_profit_line = max_profit * (1.0 - PULLBACK_PCT)
                 if current_p <= lock_profit_line:
                     logging.getLogger(symbol).warning(f"🏃‍♂️💨 AI Trailing Profit ทำงาน! (Max: +{max_profit:.2f}$ ย่อเหลือ +{current_p:.2f}$) ตัดจบ!")
-                    close_one_order(symbol, reason="AI Trailing Profit 🏃‍♂️💨")
+                    close_one_order(symbol, reason="AI Trailing Profit 🏃‍♂️💨", ticket=ticket)
                     continue # ปิดแล้วให้ข้ามไปเช็คไม้ถัดไปเลย
                     
             # 🛡️ เกราะชั้นนอก: เช็ค Break-Even (วิ่งไปถึงเป้าแรกของ AI แล้วโดนทุบกลับ)
             elif max_profit >= BE_ACTIVATION:
                 if current_p <= BE_LOCK_PROFIT:
                     logging.getLogger(symbol).warning(f"🛡️ AI Break-Even บังทุนทำงาน! (Max: +{max_profit:.2f}$ ร่วงมาเหลือ +{current_p:.2f}$) ปิดเจ๊า!")
-                    close_one_order(symbol, reason="AI Break-Even 🛡️")
+                    close_one_order(symbol, reason="AI Break-Even 🛡️", ticket=ticket)
 
     # ==========================================
     # 🟢 2. ระบบตามเก็บตกไม้ที่ถูกโบรคเกอร์ปิด (ชน SL/TP)
@@ -357,7 +410,7 @@ def place_order(symbol, type, price, rsi, comment):
 def close_one_order(symbol, reason="AI Action", max_float_p=0.0, max_float_l=0.0): 
     positions = mt5.positions_get(symbol=symbol)
     if not positions: return False
-    pos = positions[0] 
+    pos = next((p for p in positions if p.ticket == ticket), positions[0])
     tick = mt5.symbol_info_tick(symbol)
     if not tick: return False
     

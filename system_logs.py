@@ -31,20 +31,6 @@ class GUIHandler(logging.Handler):
         display_msg = f"{self.log_name}{msg}"
         shared_state.log_queue.put((display_msg, record.levelname))
 
-def setup_global_logging():
-    if not os.path.exists("Logs"):
-        os.makedirs("Logs")
-        
-    # 🟢 เพิ่มระบบดักจับ Error ก่อนบอทพัง (Crash Report) ไว้ที่นี่เลยครับ
-    def global_exception_handler(exc_type, exc_value, exc_tb):
-        if issubclass(exc_type, KeyboardInterrupt):
-            sys.__excepthook__(exc_type, exc_value, exc_tb)
-            return
-        error_msg = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
-        logging.getLogger("System").error(f"🚨 [FATAL ERROR] บอทช็อตตายกะทันหัน:\n{error_msg}")
-
-    sys.excepthook = global_exception_handler # เชื่อมต่อระบบ
-
 class LogsFormatter(logging.Formatter):
     def format(self, record):
         msg = record.getMessage()
@@ -60,8 +46,19 @@ class LogsFormatter(logging.Formatter):
         return f"[{time_str_default}] {msg}"
 
 def setup_global_logging():
+
     if not os.path.exists("Logs"):
         os.makedirs("Logs")
+        
+    # 🟢 เพิ่มระบบดักจับ Error ก่อนบอทพัง (Crash Report) ไว้ที่นี่เลยครับ
+    def global_exception_handler(exc_type, exc_value, exc_tb):
+        if issubclass(exc_type, KeyboardInterrupt):
+            sys.__excepthook__(exc_type, exc_value, exc_tb)
+            return
+        error_msg = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+        logging.getLogger("System").error(f"🚨 [FATAL ERROR] บอทช็อตตายกะทันหัน:\n{error_msg}")
+
+    sys.excepthook = global_exception_handler # เชื่อมต่อระบบ
 
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("discord").setLevel(logging.WARNING)

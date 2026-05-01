@@ -119,10 +119,6 @@ class PCTradingApp(ctk.CTk):
                 self.risk_slider.pack(pady=5)
                 ctk.CTkLabel(risk_frame, text="Low", font=("Arial", 12, "bold")).pack()
 
-        # Log Box สีดำ (โค้ดต่อจากนี้เหมือนเดิมครับ)
-        self.log_box = ctk.CTkTextbox(self, state="disabled", font=("Consolas", 13), fg_color="#000000")
-        # ...
-
         # Log Box สีดำ
         self.log_box = ctk.CTkTextbox(self, state="disabled", font=("Consolas", 13), fg_color="#000000")
         self.log_box.pack(pady=10, padx=20, fill="both", expand=True)

@@ -221,7 +221,7 @@ async def send_status_report(title="[Status Report]"):
         if rates is not None and len(rates) > 0:
             prices = [r['close'] for r in rates]
             rsi_val = adv.calculate_rsi(prices)
-            if rsi_val: rsi_text = f"{rsi_val[-1]:.2f}"
+            if rsi_val: rsi_text = f"{rsi_val:.2f}"
             
         sym_count, sym_profit, sym_wins, sym_losses = get_today_db_stats(symbol)
         
