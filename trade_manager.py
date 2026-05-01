@@ -181,10 +181,6 @@ async def trading_job():
                                     shared_state.TRADE_LAYERS.setdefault(s, {"buy":[False]*5, "sell":[False]*5})["sell"][i] = True
                                     has_sell = True
 
-            if mt5.positions_get(symbol=s) and rsi > strat['sell'][i] and not shared_state.TRADE_LAYERS.get(s, {}).get("sell", [False]*5)[i]:
-                if close_one_order(s): 
-                    shared_state.TRADE_LAYERS.setdefault(s, {"buy":[False]*5, "sell":[False]*5})["sell"][i] = True
-
     positions = mt5.positions_get()
     current_tickets = []
     if positions:
@@ -410,7 +406,9 @@ def place_order(symbol, type, price, rsi, comment):
 def close_one_order(symbol, reason="AI Action",ticket=None, max_float_p=0.0, max_float_l=0.0): 
     positions = mt5.positions_get(symbol=symbol)
     if not positions: return False
-    pos = next((p for p in positions if p.ticket == ticket), positions[0])
+    pos = next((p for p in positions if p.ticket == ticket), None)
+    if pos is None: 
+        return False
     tick = mt5.symbol_info_tick(symbol)
     if not tick: return False
     
