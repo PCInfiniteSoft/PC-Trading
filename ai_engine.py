@@ -74,6 +74,8 @@ async def ai_update_strategy(symbol, win_loss_stats="N/A"):
               f"\"regime\": \"string\", \"spike_threshold\": float, "
               f"\"tp_activation\": float, \"pullback_pct\": float, "
               f"\"be_activation\": float, \"be_lock_profit\": float"
+              f"CRITICAL RULE: 'buy_levels' and 'sell_levels' MUST be realistic tradable RSI values (strictly between 15 and 85). "
+              f"DO NOT output extreme impossible values like 0 or 100 to avoid trading. If the market is highly volatile, widen the levels (e.g., 20/80 or 25/75) but NEVER use 0 or 100. DO NOT return actual price levels. "
               f"}}")
 
     if getattr(shared_state, 'CURRENT_LOOP_MINS', 5) == 1:

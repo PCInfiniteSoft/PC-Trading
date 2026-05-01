@@ -15,6 +15,7 @@ from discord.ext import commands, tasks
 from datetime import datetime, time
 from trade_manager import get_rsi, is_safe_trading_time
 
+
 intents = discord.Intents.default()
 intents.message_content = True
 
@@ -262,18 +263,16 @@ async def send_status_report(title="[Status Report]"):
 # ⏰ ระบบ Report อัตโนมัติ (Task Loops)
 # ==========================================
 @tasks.loop(minutes=1)
-async def scheduled_reports():
-    global LAST_REPORT_HOUR
+async def scheduled_reports():    
     
-    # ถ้าบอทไม่ได้เปิดรันอยู่ ไม่ต้องส่ง Report
     if shared_state.BOT_STATE not in ["RUNNING", "COOLDOWN"]: 
         return
         
     now = datetime.now()
     
     # 🟢 ถ้าเข็มยาวชี้เลข 12 (นาทีที่ 00) และยังไม่ได้ส่งของชั่วโมงนี้
-    if now.minute == 0 and now.hour != LAST_REPORT_HOUR:
-        LAST_REPORT_HOUR = now.hour # จดไว้ว่าส่งของชั่วโมงนี้แล้ว
+    if now.minute == 0 and now.hour != shared_state.LAST_REPORT_HOUR:
+        shared_state.LAST_REPORT_HOUR = now.hour # จดไว้ว่าส่งของชั่วโมงนี้แล้ว
         
         if now.hour == 0:
             await send_end_day_report() 
