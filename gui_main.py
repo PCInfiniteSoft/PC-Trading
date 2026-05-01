@@ -16,6 +16,7 @@ from discord.ext import tasks
 from bot_config import *
 from discord_manager import bot, scheduled_reports, get_win_loss_text, send_startup_report
 
+
 app_instance = None 
 
 @bot.event
