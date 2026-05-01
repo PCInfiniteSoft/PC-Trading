@@ -137,15 +137,31 @@ async def ai_analysis(symbol, price, rsi, st_data):
     global AI_IS_ONLINE, AI_ERROR_CODE
     prompt = (
         f"Symbol {symbol} Price {price} RSI {rsi:.2f} Market {STRATEGY_DATA[symbol]['regime']}. "
-        f"Technical: [Supertrend: {st_data['supertrend']}] | [SMC Zone: {st_data['ob_zone']}] | "
+        f"Technical: [H1 Supertrend: {st_data['supertrend_h1']}] | "
+        f"[M15 Supertrend: {st_data['supertrend']}] | "
+        f"[M15 SMC Zone: {st_data['ob_zone']}] | "
         f"[Chandelier Exit -> Long Stop: {st_data['long_stop']}, Short Stop: {st_data['short_stop']}]. "
-        f"Based on RSI and these institutional levels, Decision BUY/HOLD? "
-        f"JSON: {{\"decision\": \"BUY/HOLD\", \"reason\": \"string\"}}"
+        f"-----------------\n"
+        f"[SCORING SYSTEM RULES]\n"
+        f"You are an AI Sniper. Evaluate the score based on these 3 criteria (Max Score 10).\n"
+        f"BUY (Long) Criteria:\n"
+        f"1. H1 Supertrend is UPTREND 🟢 (+4 points)\n"
+        f"2. Current price is near or in Demand Zone (+4 points)\n"
+        f"3. RSI is below 40 (+2 points)\n"
+        f"SELL (Short) Criteria:\n"
+        f"1. H1 Supertrend is DOWNTREND 🔴 (+4 points)\n"
+        f"2. Current price is near or in Supply Zone (+4 points)\n"
+        f"3. RSI is above 60 (+2 points)\n"
+        f"\n🔴 TRIGGER RULE: If Total Score >= 6, approve trade! Otherwise, HOLD.\n"
+        f"Provide JSON ONLY: {{\"score\": int, \"decision\": \"BUY/SELL/HOLD\", \"reason\": \"string detail\"}}"
     )
     try:
         response = await client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}],
+            messages=[
+                {"role": "system", "content": "You are a professional trading AI. Output valid JSON only."},
+                {"role": "user", "content": prompt}
+            ],
             response_format={"type": "json_object"},
             timeout=20.0 # 🟢 กันค้าง
         )
@@ -154,8 +170,8 @@ async def ai_analysis(symbol, price, rsi, st_data):
     except Exception as e:
         AI_IS_ONLINE = False
         AI_ERROR_CODE = re.search(r"\d{3}", str(e)).group() if re.search(r"\d{3}", str(e)) else "Err"
-        logging.getLogger("System").warning(f"⚠️ AI Offline ({AI_ERROR_CODE}) - บังคับอนุมัติออเดอร์ด้วยระบบ Fallback RSI")
-        return {"decision": "HOLD", "reason": f"AI Error (Safety Block)"}
+        logging.getLogger("System").warning(f"⚠️ AI Offline ({AI_ERROR_CODE}) - บังคับระงับออเดอร์เพื่อความปลอดภัย")
+        return {"score": 0, "decision": "HOLD", "reason": f"AI Error (Safety Block)"}
     
 def get_today_high_impact_news(symbols):
     global NEWS_CACHE, LAST_NEWS_FETCH
