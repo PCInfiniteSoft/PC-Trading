@@ -361,7 +361,7 @@ def close_one_order(symbol, reason="AI Action", max_float_p=0.0, max_float_l=0.0
     tick = mt5.symbol_info_tick(symbol)
     if not tick: return False
     
-    current_profit = pos.profit + pos.swap + pos.commission
+    current_profit = pos.profit + pos.swap
     
     type_dict = {mt5.ORDER_TYPE_BUY: mt5.ORDER_TYPE_SELL, mt5.ORDER_TYPE_SELL: mt5.ORDER_TYPE_BUY}
     price_dict = {mt5.ORDER_TYPE_BUY: tick.bid, mt5.ORDER_TYPE_SELL: tick.ask}
