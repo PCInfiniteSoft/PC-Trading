@@ -407,7 +407,7 @@ def place_order(symbol, type, price, rsi, comment):
     logging.getLogger(symbol).error(f"❌ {type} Error: {res.comment}")
     return False
 
-def close_one_order(symbol, reason="AI Action", max_float_p=0.0, max_float_l=0.0): 
+def close_one_order(symbol, reason="AI Action",ticket=None, max_float_p=0.0, max_float_l=0.0): 
     positions = mt5.positions_get(symbol=symbol)
     if not positions: return False
     pos = next((p for p in positions if p.ticket == ticket), positions[0])
