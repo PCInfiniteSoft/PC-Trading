@@ -67,15 +67,14 @@ async def ai_update_strategy(symbol, win_loss_stats="N/A"):
     prompt = (f"Analyze {symbol} (50 bars): {history}. Today's Stats: {win_loss_stats}. "
               f"🚨 LATEST HIGH-IMPACT NEWS: {news_text}. "
               f"Consider this news for market regime and volatility anticipation. "
-              f"CRITICAL RULE: 'buy_levels' and 'sell_levels' MUST strictly be RSI values (between 0 and 100). DO NOT return actual price levels. "
+              f"CRITICAL RULE: 'buy_levels' and 'sell_levels' MUST be realistic tradable RSI values (strictly between 15 and 85). "
+              f"DO NOT output extreme impossible values like 0 or 100 to avoid trading. If the market is highly volatile, widen the levels (e.g., 20/80 or 25/75) but NEVER use 0 or 100. DO NOT return actual price levels. "
               f"Also, analyze volatility to provide dynamic risk management parameters. "
               f"Provide JSON: {{"
               f"\"buy_levels\": [5 floats], \"sell_levels\": [5 floats], "
               f"\"regime\": \"string\", \"spike_threshold\": float, "
               f"\"tp_activation\": float, \"pullback_pct\": float, "
               f"\"be_activation\": float, \"be_lock_profit\": float"
-              f"CRITICAL RULE: 'buy_levels' and 'sell_levels' MUST be realistic tradable RSI values (strictly between 15 and 85). "
-              f"DO NOT output extreme impossible values like 0 or 100 to avoid trading. If the market is highly volatile, widen the levels (e.g., 20/80 or 25/75) but NEVER use 0 or 100. DO NOT return actual price levels. "
               f"}}")
 
     if getattr(shared_state, 'CURRENT_LOOP_MINS', 5) == 1:
