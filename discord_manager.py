@@ -104,7 +104,15 @@ def get_today_db_stats(symbol=None):
     except Exception as e:
         return 0, 0.0, 0, 0
 
+HAS_SENT_STARTUP_REPORT = False 
+
 async def send_startup_report(channel=None):
+    global HAS_SENT_STARTUP_REPORT
+    
+    # ถ้าเคยส่งไปแล้ว (เช่น ตอนเปลี่ยน Risk) ให้ยกเลิกการส่งซ้ำทันที
+    if HAS_SENT_STARTUP_REPORT:
+        return 
+        
     if not channel:
         from bot_config import REPORT_CHANNEL_ID
         channel = bot.get_channel(int(REPORT_CHANNEL_ID))
@@ -142,6 +150,8 @@ async def send_startup_report(channel=None):
     msg += "Discord: ✅ Online"
     
     await channel.send(msg)
+    
+    HAS_SENT_STARTUP_REPORT = True
 
 async def send_closing_report(channel=None):
     if not channel:
