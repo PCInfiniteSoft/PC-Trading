@@ -11,6 +11,9 @@ from datetime import datetime, timedelta
 from bot_config import *
 from trade_noti import send_trade_notification
 from discord.ext import tasks
+from risk_manager import RiskManager
+
+agent3 = RiskManager(db_path="trading_history.db")
 
 @tasks.loop(minutes=1)
 async def trading_job():
@@ -94,6 +97,7 @@ async def trading_job():
         if rsi is None: continue
         
         if not is_safe_trading_time(s): 
+            ai.AI_IS_ONLINE = False 
             continue
             
         is_volatile = check_volatility(s, ai.STRATEGY_DATA[s]["threshold"]) 
@@ -154,6 +158,12 @@ async def trading_job():
                             ans = await ai.ai_analysis(s, tick.ask, rsi, st_data) # ขา Buy ใช้ tick.ask
                             
                             if ans.get('decision') == "BUY":
+                                # 🛡️ [Agent 3] ด่านตรวจความปลอดภัยก่อนลั่นไก
+                                if agent3.is_cooldown_active(cooldown_minutes=5): continue
+                                if agent3.is_against_trend(strat.get('regime', ''), "BUY"): continue
+                                if agent3.is_spread_too_high(s, strat.get('max_spread')): continue
+
+                                # 🎯 [Agent 2] ถ้าผ่านด่านทั้งหมด ถึงจะอนุญาตให้ยิง!
                                 if place_order(s, "BUY", tick.ask, rsi, f"L{i+1}:{ans.get('reason', '')[:18]}"): 
                                     shared_state.TRADE_LAYERS.setdefault(s, {"buy":[False]*5, "sell":[False]*5})["buy"][i] = True
                                     has_buy = True
@@ -177,6 +187,12 @@ async def trading_job():
                             ans = await ai.ai_analysis(s, tick.bid, rsi, st_data) # ขา Sell ต้องใช้ tick.bid
                             
                             if ans.get('decision') == "SELL":
+                                # 🛡️ [Agent 3] ด่านตรวจความปลอดภัยก่อนลั่นไก
+                                if agent3.is_cooldown_active(cooldown_minutes=5): continue
+                                if agent3.is_against_trend(strat.get('regime', ''), "SELL"): continue
+                                if agent3.is_spread_too_high(s, strat.get('max_spread')): continue
+
+                                # 🎯 [Agent 2] ถ้าผ่านด่านทั้งหมด ถึงจะอนุญาตให้ยิง!
                                 if place_order(s, "SELL", tick.bid, rsi, f"L{i+1}:{ans.get('reason', '')[:18]}"): 
                                     shared_state.TRADE_LAYERS.setdefault(s, {"buy":[False]*5, "sell":[False]*5})["sell"][i] = True
                                     has_sell = True
@@ -202,32 +218,57 @@ async def trading_job():
                 shared_state.ACTIVE_TRADE_TRACKER[ticket]["max_l"] = current_p
 
             # ==========================================
-            # 🏃‍♂️💨 1.2 ระบบ Trailing Profit & Break-Even (ควบคุมโดย AI 100%)
+            # 🏃‍♂️💨 1.2 ระบบ Trailing & Break-Even (อัปเกรดเป็น Server-Side SL)
             # ==========================================
             max_profit = shared_state.ACTIVE_TRADE_TRACKER[ticket]["max_p"]
-            
-            # 🤖 ดึงกลยุทธ์จากสมอง AI ประจำคู่เงินนั้นๆ (ซึ่งจะถูกอัปเดตใหม่ทุก 5 นาที)
             strat = ai.STRATEGY_DATA.get(symbol, {})
             
-            # ⚙️ รับค่า Dynamic จาก AI (ถ้าช่วงไหน AI เออเร่อหรือตอบไม่ครบ จะใช้ค่า Default ด้านหลังสุดกันเหนียวไว้)
+            # ค่าควบคุมจาก AI
             TP_ACTIVATION = strat.get("tp_activation", 3.0)     
             PULLBACK_PCT = strat.get("pullback_pct", 0.30)      
             BE_ACTIVATION = strat.get("be_activation", 1.50)    
             BE_LOCK_PROFIT = strat.get("be_lock_profit", 0.20)  
 
-            # 🛡️ เกราะชั้นใน: เช็ค Trailing Profit (กำไรทะลุเป้าที่ AI วางไว้ แล้วย่อตัว)
+            # เตรียมข้อมูลราคาเพื่อคำนวณจุด SL ใหม่
+            symbol_info = mt5.symbol_info(symbol)
+            # คำนวณว่ากำไร 1 USD เท่ากับราคาวิ่งกี่จุด (Points)
+            point_value_per_lot = symbol_info.trade_tick_value / symbol_info.trade_tick_size
+            
+            new_sl_price = 0.0
+
+            # 🛡️ 1. เช็ค Trailing Profit (กำไรทะลุเป้าใหญ่)
             if max_profit >= TP_ACTIVATION:
-                lock_profit_line = max_profit * (1.0 - PULLBACK_PCT)
-                if current_p <= lock_profit_line:
-                    logging.getLogger(symbol).warning(f"🏃‍♂️💨 AI Trailing Profit ทำงาน! (Max: +{max_profit:.2f}$ ย่อเหลือ +{current_p:.2f}$) ตัดจบ!")
-                    close_one_order(symbol, reason="AI Trailing Profit 🏃‍♂️💨", ticket=ticket)
-                    continue # ปิดแล้วให้ข้ามไปเช็คไม้ถัดไปเลย
+                locked_profit_usd = max_profit * (1.0 - PULLBACK_PCT)
+                price_dist = locked_profit_usd / (pos.volume * point_value_per_lot)
+                
+                if pos.type == mt5.ORDER_TYPE_BUY:
+                    new_sl_price = pos.price_open + price_dist
+                else: # SELL
+                    new_sl_price = pos.price_open - price_dist
                     
-            # 🛡️ เกราะชั้นนอก: เช็ค Break-Even (วิ่งไปถึงเป้าแรกของ AI แล้วโดนทุบกลับ)
+                reason = "Trailing Profit 🏃‍♂️💨"
+
+            # 🛡️ 2. เช็ค Break-Even (กำไรถึงเป้าแรกแต่ยังไม่ถึงเป้าใหญ่)
             elif max_profit >= BE_ACTIVATION:
-                if current_p <= BE_LOCK_PROFIT:
-                    logging.getLogger(symbol).warning(f"🛡️ AI Break-Even บังทุนทำงาน! (Max: +{max_profit:.2f}$ ร่วงมาเหลือ +{current_p:.2f}$) ปิดเจ๊า!")
-                    close_one_order(symbol, reason="AI Break-Even 🛡️", ticket=ticket)
+                price_dist = BE_LOCK_PROFIT / (pos.volume * point_value_per_lot)
+                
+                if pos.type == mt5.ORDER_TYPE_BUY:
+                    new_sl_price = pos.price_open + price_dist
+                else: # SELL
+                    new_sl_price = pos.price_open - price_dist
+                    
+                reason = "Break-Even 🛡️"
+
+            # 🚀 สั่งขยับ SL ไปที่เซิร์ฟเวอร์ทันที (ถ้าราคา SL ใหม่ ดีกว่าของเดิม)
+            if new_sl_price > 0:
+                new_sl_price = round(new_sl_price, symbol_info.digits)
+                
+                # เช็คเพื่อให้แน่ใจว่าเราขยับ SL ตามราคาไปข้างหน้าอย่างเดียว (ไม่เลื่อนถอยหลังหาจุดขาดทุน)
+                is_better = (new_sl_price > pos.sl) if pos.type == mt5.ORDER_TYPE_BUY else (new_sl_price < pos.sl or pos.sl == 0)
+                
+                if is_better:
+                    if modify_position_sltp(ticket, symbol, new_sl_price, pos.tp):
+                        logging.getLogger(symbol).info(f"✅ [Agent 2] ขยับ SL ล็อกกำไร ({reason}) -> {new_sl_price}")
 
     # ==========================================
     # 🟢 2. ระบบตามเก็บตกไม้ที่ถูกโบรคเกอร์ปิด (ชน SL/TP)
@@ -371,8 +412,9 @@ def place_order(symbol, type, price, rsi, comment):
         "volume": lot,
         "type": mt5.ORDER_TYPE_BUY if type == "BUY" else mt5.ORDER_TYPE_SELL,
         "price": price,
-        "sl": sl_price, # 🛡️ ส่ง SL แบบใหม่ไปตั้งค่าที่โบรกเกอร์
-        "tp": tp_price, # 🎯 ส่ง TP แบบใหม่ไปตั้งค่าที่โบรกเกอร์
+        "sl": sl_price,      
+        "tp": tp_price,
+        "deviation": 20,
         "magic": MAGIC_NUMBER,
         "comment": safe_comment,
         "type_time": mt5.ORDER_TIME_GTC,
@@ -402,6 +444,25 @@ def place_order(symbol, type, price, rsi, comment):
 
     logging.getLogger(symbol).error(f"❌ {type} Error: {res.comment}")
     return False
+
+def modify_position_sltp(ticket, symbol, new_sl, new_tp):
+
+    request = {
+        "action": mt5.TRADE_ACTION_SLTP, 
+        "symbol": symbol,
+        "position": ticket,              
+        "sl": new_sl,                    
+        "tp": new_tp                     
+    }
+
+    result = mt5.order_send(request)
+    
+    if result.retcode != mt5.TRADE_RETCODE_DONE:
+        print(f"⚠️ [Error] แก้ไข SL/TP ไม่สำเร็จ (Ticket {ticket}): {result.comment}")
+        return False
+        
+    print(f"🛡️ [Sniper] ล็อกกำไรสำเร็จ! ขยับ SL ไปที่ {new_sl} เรียบร้อย (Ticket {ticket})")
+    return True
 
 def close_one_order(symbol, reason="AI Action",ticket=None, max_float_p=0.0, max_float_l=0.0): 
     positions = mt5.positions_get(symbol=symbol)
