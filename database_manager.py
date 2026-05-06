@@ -66,6 +66,12 @@ def init_db():
             )
         ''')
         
+        try:
+            cursor.execute('ALTER TABLE market_context ADD COLUMN macro_bias TEXT')
+            cursor.execute('ALTER TABLE market_context ADD COLUMN allowed_dir TEXT')
+        except:
+            pass # ถ้าคอลัมน์มีอยู่แล้วก็ปล่อยผ่านไป
+            
         conn.commit()
         conn.close()
     except Exception as e:
@@ -78,28 +84,29 @@ init_db()
 # 🟢 ฟังก์ชันบันทึกข้อมูล (นำไปใช้ในไฟล์อื่น)
 # ==========================================
 
-def log_trade_entry(ticket, symbol, order_type, lot_size, entry_price, rsi_entry, market_regime, vol_thresh, risk_level, entry_reason, slippage):
+def log_trade_entry(ticket, symbol, order_type, lot_size, entry_price, rsi_entry, market_regime, vol_thresh, risk_level, entry_reason, slippage, macro_bias="N/A", allowed_dir="BOTH"):
     """ บันทึกตอนเปิดไม้ (เข้า 2 ตารางพร้อมกัน) """
     try:
         conn = sqlite3.connect(DB_NAME)
         cursor = conn.cursor()
         entry_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        # ลงตาราง 1
+        # ลงตาราง 1 (เหมือนเดิม)
         cursor.execute('''
            INSERT INTO trade_history (ticket, symbol, order_type, lot_size, entry_time, entry_price, entry_reason, slippage)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ''', (ticket, symbol, order_type, lot_size, entry_time, entry_price, entry_reason, slippage))
         
-        # ลงตาราง 2
+        # 🟢 ลงตาราง 2 (อัปเดตคำสั่ง INSERT ใหม่)
         cursor.execute('''
-            INSERT INTO market_context (ticket, rsi_entry, market_regime, volatility_threshold, risk_level)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (ticket, rsi_entry, market_regime, vol_thresh, risk_level))
+            INSERT INTO market_context (ticket, rsi_entry, market_regime, volatility_threshold, risk_level, macro_bias, allowed_dir)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (ticket, rsi_entry, market_regime, vol_thresh, risk_level, macro_bias, allowed_dir))
         
         conn.commit()
         conn.close()
     except Exception as e:
+        import logging
         logging.getLogger("System").error(f"❌ DB Entry Error: {e}")
 
 def log_trade_exit(ticket, exit_price, net_profit, max_float_p, max_float_l, exit_reason, balance_after):

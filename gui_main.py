@@ -267,6 +267,10 @@ class PCTradingApp(ctk.CTk):
                 ui["prev_price"] = curr_price
 
             ui["regime"].configure(text=f"Regime: {data['regime']}")
+            macro_data = getattr(shared_state, 'MACRO_DATA', {}).get(s, {})
+            m_bias = macro_data.get('bias', 'N/A')
+            m_dir = macro_data.get('allowed_direction', 'BOTH')
+            ui["macro"].configure(text=f"Macro: {m_bias} ({m_dir})")
             ui["rsi"].configure(text=f"RSI: {rsi:.2f}" if rsi else "RSI: N/A")
             if data['buy']: ui["target"].configure(text=f"Target: Buy < {data['buy'][0]} | Sell > {data['sell'][0]}")
             ui["thresh"].configure(text=f"Volatility Threshold: {data['threshold']:.2f}")

@@ -55,6 +55,35 @@ async def trading_job():
     
     now = datetime.now()
     now_time = now.time()
+
+    is_macro_time = (now.hour == 6 and now.minute == 0) or \
+                    (now.hour == 13 and now.minute == 30) or \
+                    (now.hour == 19 and now.minute == 0)
+
+    last_macro = getattr(shared_state, 'LAST_MACRO_TIME', None)
+
+    if (is_macro_time or last_macro is None) and (last_macro is None or last_macro.minute != now.minute):
+        logging.getLogger("System").info("👑 [Agent 0] กำลังประเมินทิศทางตลาดและข่าวสาร (Macro Bias)...")
+        
+        try:
+            symbols_list = list(SYMBOLS_CONFIG.keys())
+            news_list = ai.get_today_high_impact_news(symbols_list)
+            today_news = " | ".join(news_list)
+        except Exception as e:
+            logging.getLogger("System").warning(f"⚠️ ดึงข่าวไม่สำเร็จ: {e}")
+            today_news = "No news data available"
+
+        # 🟢 วนลูปให้ Agent 0 วิเคราะห์ทีละ Symbol
+        for macro_symbol in SYMBOLS_CONFIG:
+            macro_trends = adv.get_macro_trends(macro_symbol) 
+            h4_trend_status = macro_trends["h4_trend"]
+            d1_trend_status = macro_trends["d1_trend"]
+            
+            # ส่งให้ Agent 0 วิเคราะห์แยกทีละคู่เงิน
+            await ai.ai_macro_analysis(macro_symbol, h4_trend_status, d1_trend_status, today_news)
+        
+        # บันทึกเวลาเพื่อป้องกันการรันซ้ำ
+        shared_state.LAST_MACRO_TIME = now
     
     is_news_window = False
     for nt in getattr(shared_state, 'TODAY_NEWS_TIMES', []):
@@ -160,24 +189,30 @@ async def trading_job():
                         close_one_order(symbol=s, reason="RSI Hit Buy Target (TP) 🎯", ticket=t)
                     has_sell = False # ปิดเสร็จอัปเดตสถานะพอร์ต
                     
-                # ข. เปิดไม้ BUY สวนขึ้นไป (ส่งให้ AI ยืนยัน)
                 if not shared_state.TRADE_LAYERS.get(s, {}).get("buy", [False]*5)[i]:
-                    if ai.AI_IS_ONLINE:
-                        tick = mt5.symbol_info_tick(s)
-                        if tick is not None:
-                            st_data = adv.get_3_indicators(s) 
-                            ans = await ai.ai_analysis(s, tick.ask, rsi, st_data) # ขา Buy ใช้ tick.ask
-                            
-                            if ans.get('decision') == "BUY":
-                                # 🛡️ [Agent 3] ด่านตรวจความปลอดภัยก่อนลั่นไก
-                                if agent3.is_cooldown_active(cooldown_minutes=5): continue
-                                if agent3.is_against_trend(strat.get('regime', ''), "BUY"): continue
-                                if agent3.is_spread_too_high(s, strat.get('max_spread')): continue
+                    
+                    # 👑 [ด่านตรวจ Agent 0] ดึงนโยบายเฉพาะคู่เงินนี้มาเช็ค
+                    macro_data = getattr(shared_state, 'MACRO_DATA', {}).get(s, {})
+                    allowed_dir = macro_data.get('allowed_direction', 'BOTH')
+                    
+                    # 🛡️ อนุญาตให้ยิง BUY ได้ ก็ต่อเมื่อ Agent 0 สั่งเป็น BUY_ONLY หรือ BOTH เท่านั้น
+                    if allowed_dir in ["BUY_ONLY", "BOTH"]:
+                        if ai.AI_IS_ONLINE:
+                            tick = mt5.symbol_info_tick(s)
+                            if tick is not None:
+                                st_data = adv.get_3_indicators(s) 
+                                ans = await ai.ai_analysis(s, tick.ask, rsi, st_data) # ขา Buy ใช้ tick.ask
+                                
+                                if ans.get('decision') == "BUY":
+                                    # 🛡️ [Agent 3] ด่านตรวจความปลอดภัยก่อนลั่นไก
+                                    if agent3.is_cooldown_active(cooldown_minutes=5): continue
+                                    if agent3.is_against_trend(s, "BUY"): continue
+                                    if agent3.is_spread_too_high(s, strat.get('max_spread')): continue
 
-                                # 🎯 [Agent 2] ถ้าผ่านด่านทั้งหมด ถึงจะอนุญาตให้ยิง!
-                                if place_order(s, "BUY", tick.ask, rsi, f"L{i+1}:{ans.get('reason', '')[:18]}"): 
-                                    shared_state.TRADE_LAYERS.setdefault(s, {"buy":[False]*5, "sell":[False]*5})["buy"][i] = True
-                                    has_buy = True
+                                    # 🎯 [Agent 2] ถ้าผ่านด่านทั้งหมด ถึงจะอนุญาตให้ยิง!
+                                    if place_order(s, "BUY", tick.ask, rsi, f"L{i+1}:{ans.get('reason', '')[:18]}"): 
+                                        shared_state.TRADE_LAYERS.setdefault(s, {"buy":[False]*5, "sell":[False]*5})["buy"][i] = True
+                                        has_buy = True
 
             # ==========================================
             # 📈 ฝั่งขาขึ้น: RSI พุ่งขึ้นโซน Overbought (หาจังหวะ SELL หรือ ปิด BUY)
@@ -191,22 +226,29 @@ async def trading_job():
 
                 # ข. เปิดไม้ SELL สวนลงมา (ส่งให้ AI ยืนยัน)
                 if not shared_state.TRADE_LAYERS.get(s, {}).get("sell", [False]*5)[i]:
-                    if ai.AI_IS_ONLINE:
-                        tick = mt5.symbol_info_tick(s)
-                        if tick is not None:
-                            st_data = adv.get_3_indicators(s) 
-                            ans = await ai.ai_analysis(s, tick.bid, rsi, st_data) # ขา Sell ต้องใช้ tick.bid
-                            
-                            if ans.get('decision') == "SELL":
-                                # 🛡️ [Agent 3] ด่านตรวจความปลอดภัยก่อนลั่นไก
-                                if agent3.is_cooldown_active(cooldown_minutes=5): continue
-                                if agent3.is_against_trend(strat.get('regime', ''), "SELL"): continue
-                                if agent3.is_spread_too_high(s, strat.get('max_spread')): continue
+                    
+                    # 👑 [ด่านตรวจ Agent 0] ดึงนโยบายเฉพาะคู่เงินนี้มาเช็ค
+                    macro_data = getattr(shared_state, 'MACRO_DATA', {}).get(s, {})
+                    allowed_dir = macro_data.get('allowed_direction', 'BOTH')
+                    
+                    # 🛡️ อนุญาตให้ยิง SELL ได้ ก็ต่อเมื่อ Agent 0 สั่งเป็น SELL_ONLY หรือ BOTH เท่านั้น
+                    if allowed_dir in ["SELL_ONLY", "BOTH"]:
+                        if ai.AI_IS_ONLINE:
+                            tick = mt5.symbol_info_tick(s)
+                            if tick is not None:
+                                st_data = adv.get_3_indicators(s) 
+                                ans = await ai.ai_analysis(s, tick.bid, rsi, st_data) # ขา Sell ต้องใช้ tick.bid
+                                
+                                if ans.get('decision') == "SELL":
+                                    # 🛡️ [Agent 3] ด่านตรวจความปลอดภัยก่อนลั่นไก
+                                    if agent3.is_cooldown_active(cooldown_minutes=5): continue
+                                    if agent3.is_against_trend(s, "SELL"): continue
+                                    if agent3.is_spread_too_high(s, strat.get('max_spread')): continue
 
-                                # 🎯 [Agent 2] ถ้าผ่านด่านทั้งหมด ถึงจะอนุญาตให้ยิง!
-                                if place_order(s, "SELL", tick.bid, rsi, f"L{i+1}:{ans.get('reason', '')[:18]}"): 
-                                    shared_state.TRADE_LAYERS.setdefault(s, {"buy":[False]*5, "sell":[False]*5})["sell"][i] = True
-                                    has_sell = True
+                                    # 🎯 [Agent 2] ถ้าผ่านด่านทั้งหมด ถึงจะอนุญาตให้ยิง!
+                                    if place_order(s, "SELL", tick.bid, rsi, f"L{i+1}:{ans.get('reason', '')[:18]}"): 
+                                        shared_state.TRADE_LAYERS.setdefault(s, {"buy":[False]*5, "sell":[False]*5})["sell"][i] = True
+                                        has_sell = True
 
     positions = mt5.positions_get()
     current_tickets = []
@@ -443,13 +485,24 @@ def place_order(symbol, type, price, rsi, comment):
         slippage = abs(res.price - price) / mt5.symbol_info(symbol).point
         logging.getLogger(symbol).info(f"✅ {type} {symbol} {lot} lots at {price} (RSI: {rsi:.2f}) | {comment}")
         send_trade_notification(symbol, type, price, rsi, res.order)
+        
         strat = ai.STRATEGY_DATA.get(symbol, {})
+        
+        # 🟢 ดึงข้อมูลของ Agent 0 (Macro Director) มาจาก shared_state
+        import shared_state
+        macro_data = getattr(shared_state, 'MACRO_DATA', {}).get(symbol, {})
+        m_bias = macro_data.get('bias', 'N/A')
+        a_dir = macro_data.get('allowed_direction', 'BOTH')
+        
+        # 🟢 ส่งข้อมูลทั้งหมดเข้า DB ให้ครบถ้วน
         dbm.log_trade_entry(
             ticket=res.order, symbol=symbol, order_type=type, lot_size=lot, 
             entry_price=res.price, entry_reason=comment, slippage=slippage,
             rsi_entry=rsi, market_regime=strat.get("regime", "N/A"),
-            vol_thresh=strat.get("threshold", 0.0), risk_level=risk_level
+            vol_thresh=strat.get("threshold", 0.0), risk_level=risk_level,
+            macro_bias=m_bias, allowed_dir=a_dir
         )
+        
         shared_state.ACTIVE_TRADE_TRACKER[res.order] = {"max_p": 0.0, "max_l": 0.0}
         return True
 

@@ -16,6 +16,9 @@ class AssetCard(ctk.CTkFrame):
         
         self.lbl_regime = ctk.CTkLabel(self, text="Regime: N/A", font=("Arial", 14))
         self.lbl_regime.pack()
+
+        self.lbl_macro = ctk.CTkLabel(self, text="Macro: N/A", font=("Arial", 14, "bold"), text_color="#f39c12")
+        self.lbl_macro.pack(pady=2)
         
         self.lbl_rsi = ctk.CTkLabel(self, text="RSI: N/A", font=("Arial", 14))
         self.lbl_rsi.pack(pady=2)
@@ -35,6 +38,7 @@ class AssetCard(ctk.CTkFrame):
             "price": self.lbl_price,
             "market": self.lbl_market,
             "regime": self.lbl_regime,
+            "macro": self.lbl_macro,
             "rsi": self.lbl_rsi,
             "target": self.lbl_target,
             "thresh": self.lbl_thresh,

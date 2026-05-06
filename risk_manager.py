@@ -1,4 +1,5 @@
 import sqlite3
+import shared_state
 import MetaTrader5 as mt5
 from datetime import datetime, timedelta
 
@@ -47,27 +48,32 @@ class RiskManager:
             # กรณีหา DB ไม่เจอ หรือเพิ่งรันครั้งแรก ให้ถือว่าไม่ติด Cooldown
             return False
         
-    def is_against_trend(self, current_h1_trend, order_type):
+    def is_against_trend(self, symbol, order_type):
         """
         [Agent 3] กฎเหล็กล็อกเทรนด์ (Hard Block)
-        เช็คว่าคำสั่งซื้อขายที่กำลังจะส่ง สวนทางกับเทรนด์หลัก (H1) หรือไม่
-        """
-        # ทำให้เป็นตัวพิมพ์ใหญ่ทั้งหมดเพื่อป้องกัน error เรื่องตัวพิมพ์เล็ก/ใหญ่
-        trend = str(current_h1_trend).upper()
+        เชื่อมต่อกับ Agent 0 เพื่อเช็คว่าคำสั่งซื้อขายสวนทางนโยบายหลักหรือไม่
+        """        
+        # ดึงนโยบายจาก Agent 0 (Macro Director)
+        macro_data = getattr(shared_state, 'MACRO_DATA', {}).get(symbol, {})
+        allowed_dir = macro_data.get('allowed_direction', 'BOTH')
+        bias = macro_data.get('bias', 'SIDEWAY')
+        
         order = str(order_type).upper()
 
-        # ถ้าเทรนด์ H1 เป็นขาขึ้น (UPTREND) ห้ามยิง SELL (Short) เด็ดขาด
-        if "UP" in trend and order == "SELL":
-            print("🛑 [Risk Manager] เตะปลั๊ก! ห้ามเปิด Short (SELL) สวนเทรนด์ขาขึ้นเด็ดขาด!")
-            return True # สวนเทรนด์ = ห้ามเทรด (True คือติดบล็อก)
+        if allowed_dir == "SELL_ONLY" and order == "BUY":
+            print(f"🛑 [Risk Manager] เตะปลั๊ก! Agent 0 สั่งห้าม BUY (Macro Bias: {bias})")
+            return True 
             
-        # ถ้าเทรนด์ H1 เป็นขาลง (DOWNTREND) ห้ามยิง BUY (Long) เด็ดขาด
-        elif "DOWN" in trend and order == "BUY":
-            print("🛑 [Risk Manager] เตะปลั๊ก! ห้ามเปิด Long (BUY) สวนเทรนด์ขาลงเด็ดขาด!")
-            return True # สวนเทรนด์ = ห้ามเทรด (True คือติดบล็อก)
+        elif allowed_dir == "BUY_ONLY" and order == "SELL":
+            print(f"🛑 [Risk Manager] เตะปลั๊ก! Agent 0 สั่งห้าม SELL (Macro Bias: {bias})")
+            return True 
             
-        print(f"✅ [Risk Manager] ทิศทางปลอดภัย (Trend: {trend} | Order: {order})")
-        return False # ไม่สวนเทรนด์ = ปลอดภัย ยิงได้!
+        elif allowed_dir == "NONE":
+            print(f"🛑 [Risk Manager] เตะปลั๊ก! Agent 0 สั่งงดเทรดชั่วคราว")
+            return True
+            
+        print(f"✅ [Risk Manager] ทิศทางปลอดภัย (Order: {order} | Allow: {allowed_dir})")
+        return False
     
     def is_spread_too_high(self, symbol, ai_recommended_spread):
         """

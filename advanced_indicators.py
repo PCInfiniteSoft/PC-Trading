@@ -83,3 +83,40 @@ def get_3_indicators(symbol, timeframe=mt5.TIMEFRAME_M15):
         "long_stop": round(long_stop, 2),
         "short_stop": round(short_stop, 2)
     }
+
+def get_macro_trends(symbol):
+    """
+    อ่านค่ากราฟ H4 และ D1 เพื่อหาแนวโน้มหลักของตลาด
+    """
+    trends = {"h4_trend": "SIDEWAY", "d1_trend": "SIDEWAY"}
+    
+    # วนลูปดึงข้อมูลทั้ง 2 ไทม์เฟรม
+    timeframes = [
+        (mt5.TIMEFRAME_H4, "h4_trend"),
+        (mt5.TIMEFRAME_D1, "d1_trend")
+    ]
+    
+    for tf, key in timeframes:
+        rates = mt5.copy_rates_from_pos(symbol, tf, 0, 50)
+        
+        if rates is not None and len(rates) >= 50:
+            df = pd.DataFrame(rates)
+            
+            # คำนวณ ATR เพื่อใช้วัดความผันผวน
+            df['tr0'] = abs(df['high'] - df['low'])
+            df['tr1'] = abs(df['high'] - df['close'].shift())
+            df['tr2'] = abs(df['low'] - df['close'].shift())
+            df['tr'] = df[['tr0', 'tr1', 'tr2']].max(axis=1)
+            df['atr'] = df['tr'].rolling(14).mean()
+            
+            curr_atr = df['atr'].iloc[-1]
+            curr_close = df['close'].iloc[-1]
+            
+            # คำนวณ Chandelier Exit (สูตรเดียวกับ M15 ของพี่)
+            high_22 = df['high'].rolling(22).max().iloc[-1]
+            long_stop = high_22 - (curr_atr * 3)
+            
+            # ตัดสินเทรนด์
+            trends[key] = "UPTREND 🟢" if curr_close > long_stop else "DOWNTREND 🔴"
+            
+    return trends

@@ -7,6 +7,7 @@ import trade_manager as tm
 import MetaTrader5 as mt5
 import xml.etree.ElementTree as ET
 import database_manager as dbm
+import json
 from datetime import datetime
 from bot_config import *
 from openai import AsyncOpenAI
@@ -24,6 +25,27 @@ RISK_PROFILES = {
     4: "Level 4: Aggressive. Capitalize on minor pullbacks and short-term momentum.",
     5: "Level 5 (High Risk): Extremely aggressive scalping. Enter on slightest momentum shifts. High frequency."
 }
+
+MACRO_DIRECTOR_PROMPT = """
+            You are the "Macro Director" of a quantitative trading fund.
+            Your job is to analyze the daily/H4 technical data AND the upcoming economic calendar (Forex Factory) to determine the overall market direction (Bias) and risk level for the next 4-8 hours.
+            [Input Data]
+            - Asset: {symbol}
+            - H4 Trend: {h4_trend}
+            - D1 Trend: {d1_trend}
+            - Upcoming Forex Factory News: {news_data}
+            [Instructions]
+            1. Evaluate High-Impact (Red Folder) USD news. Decide if the market will wait-and-see or trend strongly.
+            2. Determine the strict trading direction: "BUY_ONLY", "SELL_ONLY", "BOTH", or "NONE".
+            3. Set the global risk level (1-5).
+            Output MUST be strictly valid JSON:
+            {{
+            "macro_bias": "STRONG_BULLISH" | "STRONG_BEARISH" | "SIDEWAY" | "WAIT_FOR_NEWS",
+            "allowed_direction": "BUY_ONLY" | "SELL_ONLY" | "BOTH" | "NONE",
+            "global_risk_level": 3,
+            "reason": "Short Thai explanation (Max 50 chars)"
+            }}
+            """
 
 def get_api_key_from_txt():
     try:
@@ -172,7 +194,48 @@ async def ai_analysis(symbol, price, rsi, st_data):
         AI_ERROR_CODE = re.search(r"\d{3}", str(e)).group() if re.search(r"\d{3}", str(e)) else "Err"
         logging.getLogger("System").warning(f"⚠️ AI Offline ({AI_ERROR_CODE}) - บังคับระงับออเดอร์เพื่อความปลอดภัย")
         return {"score": 0, "decision": "HOLD", "reason": f"AI Error (Safety Block)"}
+
+async def ai_macro_analysis(symbol, h4_trend, d1_trend, news_data):
     
+    prompt = MACRO_DIRECTOR_PROMPT.format(
+        symbol=symbol,
+        h4_trend=h4_trend,
+        d1_trend=d1_trend,
+        news_data=news_data
+    )
+    
+    try:
+        response = await client.chat.completions.create(
+            model="gpt-4o-mini", 
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"}, # 🎯 ไม้ตายของ OpenAI บังคับตอบเป็น JSON 100%
+            temperature=0.2 # ลดความเพ้อเจ้อ ให้วิเคราะห์ตรงไปตรงมา
+        )
+        
+        response_text = response.choices[0].message.content
+        macro_plan = json.loads(response_text)
+        
+        # 🟢 สร้าง Dictionary เปล่าถ้ายังไม่มี
+        if not hasattr(shared_state, 'MACRO_DATA'):
+            shared_state.MACRO_DATA = {}
+            
+        # 🎯 ประกาศนโยบายแยกตามคู่เงิน (Symbol)
+        shared_state.MACRO_DATA[symbol] = {
+            "bias": macro_plan.get("macro_bias", "SIDEWAY"),
+            "allowed_direction": macro_plan.get("allowed_direction", "BOTH"),
+            "global_risk": macro_plan.get("global_risk_level", 3),
+            "reason": macro_plan.get("reason", "No reason provided")
+        }
+        
+        print(f"👑 [Agent 0] นโยบายตลาดของ {symbol}: {shared_state.MACRO_DATA[symbol]['bias']} -> {shared_state.MACRO_DATA[symbol]['reason']}")
+        print(f"🛡️ {symbol} อนุญาตให้เทรด: {shared_state.MACRO_DATA[symbol]['allowed_direction']}")
+        
+        return macro_plan
+            
+    except Exception as e:
+        print(f"⚠️ [Agent 0] Macro Analysis Error: {e}")
+        return None
+
 def get_today_high_impact_news(symbols):
     global NEWS_CACHE, LAST_NEWS_FETCH
     if time.time() - LAST_NEWS_FETCH < 3600 and NEWS_CACHE:
