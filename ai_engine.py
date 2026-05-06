@@ -183,7 +183,7 @@ async def ai_analysis(symbol, price, rsi, st_data):
         f"1. H1 Supertrend is DOWNTREND 🔴 (+4 points)\n"
         f"2. Current price is near or in Supply Zone (+4 points)\n"
         f"3. RSI is above 60 (+2 points)\n"
-        f"\n🔴 TRIGGER RULE: If Total Score >= {trigger_score}, approve trade! Otherwise, HOLD.\n"
+        f"\n🔴 STRICT TRIGGER RULE: If Total Score is Greater Than or Equal To (>=) {trigger_score}, you MUST set decision to 'BUY' or 'SELL'. DO NOT set 'HOLD' if score >= {trigger_score}.\n"
         f"Provide JSON ONLY: {{\"score\": int, \"decision\": \"BUY/SELL/HOLD\", \"reason\": \"string detail\"}}"
     )
     try:

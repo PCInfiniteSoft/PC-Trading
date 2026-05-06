@@ -204,16 +204,30 @@ async def trading_job():
                                 ans = await ai.ai_analysis(s, tick.ask, rsi, st_data) # ขา Buy ใช้ tick.ask
                                 logging.getLogger(s).info(f"🧠 [Agent 2] Score: {ans.get('score')} | Action: {ans.get('decision')} | Reason: {ans.get('reason')}")
 
-                                if ans.get('decision') == "BUY":
-                                    # 🛡️ [Agent 3] ด่านตรวจความปลอดภัยก่อนลั่นไก
-                                    if agent3.is_cooldown_active(cooldown_minutes=5): continue
-                                    if agent3.is_against_trend(s, "BUY"): continue
-                                    if agent3.is_spread_too_high(s, strat.get('max_spread')): continue
+                                risk = getattr(shared_state, 'CURRENT_RISK_LEVEL', 3)
+                                t_score = 2 if risk == 5 else 4 if risk == 4 else 8 if risk <= 2 else 6
+                                score = int(ans.get('score', 0))
+                                
+                                # ถ้า AI สั่ง BUY หรือ ถ้าคะแนนถึงเกณฑ์ ก็บังคับลั่นไกเลย!
+                                if ans.get('decision') == "BUY" or score >= t_score:
+                                    log = logging.getLogger(s)
+                                    
+                                    # 🛡️ [Agent 3] เช็คความปลอดภัย
+                                    if agent3.is_cooldown_active(cooldown_minutes=5): 
+                                        log.warning("⏳ [Agent 3] บล็อก! ติด Cooldown"); continue
+                                    if agent3.is_against_trend(s, "BUY"): 
+                                        log.warning("🛑 [Agent 3] บล็อก! ทิศทาง BUY สวนนโยบาย"); continue
+                                    if agent3.is_spread_too_high(s, strat.get('max_spread', 5000)): 
+                                        log.warning(f"⚠️ [Agent 3] บล็อก! สเปรดกว้างเกินไป (Max: {strat.get('max_spread')})"); continue
 
-                                    # 🎯 [Agent 2] ถ้าผ่านด่านทั้งหมด ถึงจะอนุญาตให้ยิง!
-                                    if place_order(s, "BUY", tick.ask, rsi, f"L{i+1}:{ans.get('reason', '')[:18]}"): 
+                                    log.info(f"🎯 [Python] ผ่านด่าน Agent 3 แล้ว! กำลังส่งคำสั่ง BUY ไปที่ MT5...")
+                                    
+                                    # ส่งคำสั่งให้ MT5
+                                    if place_order(s, "BUY", tick.ask, rsi, f"L{i+1}:Score={score}"): 
                                         shared_state.TRADE_LAYERS.setdefault(s, {"buy":[False]*5, "sell":[False]*5})["buy"][i] = True
                                         has_buy = True
+                                    else:
+                                        log.error(f"❌ [MT5] ยิงคำสั่ง BUY ไม่เข้า! (MT5 ปฏิเสธการเข้าออเดอร์)")
 
             # ==========================================
             # 📈 ฝั่งขาขึ้น: RSI พุ่งขึ้นโซน Overbought (หาจังหวะ SELL หรือ ปิด BUY)
@@ -241,16 +255,31 @@ async def trading_job():
                                 ans = await ai.ai_analysis(s, tick.bid, rsi, st_data) # ขา Sell ต้องใช้ tick.bid
                                 logging.getLogger(s).info(f"🧠 [Agent 2] Score: {ans.get('score')} | Action: {ans.get('decision')} | Reason: {ans.get('reason')}")
                                 
-                                if ans.get('decision') == "SELL":
-                                    # 🛡️ [Agent 3] ด่านตรวจความปลอดภัยก่อนลั่นไก
-                                    if agent3.is_cooldown_active(cooldown_minutes=5): continue
-                                    if agent3.is_against_trend(s, "SELL"): continue
-                                    if agent3.is_spread_too_high(s, strat.get('max_spread')): continue
+                                risk = getattr(shared_state, 'CURRENT_RISK_LEVEL', 3)
+                                t_score = 2 if risk == 5 else 4 if risk == 4 else 8 if risk <= 2 else 6
+                                score = int(ans.get('score', 0))
+                                
+                                # ถ้า AI สั่ง SELL หรือ ถ้าคะแนนถึงเกณฑ์ ก็บังคับลั่นไกเลย!
+                                if ans.get('decision') == "SELL" or score >= t_score:
 
-                                    # 🎯 [Agent 2] ถ้าผ่านด่านทั้งหมด ถึงจะอนุญาตให้ยิง!
-                                    if place_order(s, "SELL", tick.bid, rsi, f"L{i+1}:{ans.get('reason', '')[:18]}"): 
+                                    log = logging.getLogger(s)
+                                    
+                                    # 🛡️ [Agent 3] เช็คความปลอดภัย
+                                    if agent3.is_cooldown_active(cooldown_minutes=5): 
+                                        log.warning("⏳ [Agent 3] บล็อก! ติด Cooldown"); continue
+                                    if agent3.is_against_trend(s, "SELL"): 
+                                        log.warning("🛑 [Agent 3] บล็อก! ทิศทาง SELL สวนนโยบาย"); continue
+                                    if agent3.is_spread_too_high(s, strat.get('max_spread', 5000)): 
+                                        log.warning(f"⚠️ [Agent 3] บล็อก! สเปรดกว้างเกินไป (Max: {strat.get('max_spread')})"); continue
+
+                                    log.info(f"🎯 [Python] ผ่านด่าน Agent 3 แล้ว! กำลังส่งคำสั่ง SELL ไปที่ MT5...")
+                                    
+                                    # ส่งคำสั่งให้ MT5
+                                    if place_order(s, "SELL", tick.bid, rsi, f"L{i+1}:Score={score}"): 
                                         shared_state.TRADE_LAYERS.setdefault(s, {"buy":[False]*5, "sell":[False]*5})["sell"][i] = True
                                         has_sell = True
+                                    else:
+                                        log.error(f"❌ [MT5] ยิงคำสั่ง SELL ไม่เข้า! (MT5 ปฏิเสธการเข้าออเดอร์)")
 
     positions = mt5.positions_get()
     current_tickets = []
@@ -479,14 +508,25 @@ def place_order(symbol, type, price, rsi, comment):
     res = mt5.order_send(request)
     
     if res is None:
-        error_code = mt5.last_error()
-        logging.getLogger(symbol).error(f"❌ {type} Failed! คืนค่า None (MT5 Error: {error_code})")
+        err = mt5.last_error()
+        import logging
+        logging.getLogger(symbol).error(f"❌ กระสุนด้าน! ส่งคำสั่งไม่ผ่าน Error Code: {err}")
         return False
         
+    # 🟢 กรณีที่ 2: ยิงสำเร็จ!
     if res.retcode == mt5.TRADE_RETCODE_DONE:
         slippage = abs(res.price - price) / mt5.symbol_info(symbol).point
         logging.getLogger(symbol).info(f"✅ {type} {symbol} {lot} lots at {price} (RSI: {rsi:.2f}) | {comment}")
-        send_trade_notification(symbol, type, price, rsi, res.order)
+        # ... (โค้ดเดิมที่เหลือ ปล่อยไว้เหมือนเดิมได้เลยครับ)
+        
+        shared_state.ACTIVE_TRADE_TRACKER[res.order] = {"max_p": 0.0, "max_l": 0.0}
+        return True
+        
+    # 🔴 กรณีที่ 3: MT5 ตอบกลับมาว่า "ปฏิเสธการเข้าออเดอร์!" (เช่น เงินไม่พอ, สเปรดถ่าง, ฯลฯ)
+    else:
+        import logging
+        logging.getLogger(symbol).error(f"❌ MT5 ปฏิเสธคำสั่ง! สาเหตุ: {res.comment} (Code: {res.retcode})")
+        return False
         
         strat = ai.STRATEGY_DATA.get(symbol, {})
         
