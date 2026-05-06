@@ -72,17 +72,28 @@ async def trading_job():
         shared_state.CURRENT_LOOP_MINS = 5
         logging.getLogger("System").info("✅ [NORMAL MODE] พ้นช่วงข่าวกล่องแดง ปรับรอบสแกนกลับเป็น 5 นาที")
 
+    last_ai_update = getattr(shared_state, 'LAST_AI_UPDATE_TIME', datetime.min)
+    time_since_update = (now - last_ai_update).total_seconds() / 60
+
     if shared_state.CURRENT_LOOP_MINS == 1:
         is_ai_update_turn = True
     else:
-        is_ai_update_turn = (now.minute % 5 == 0)     
-    
+        # ถ้าผ่านไป 4.5 นาที ให้ถือว่าถึงรอบอัปเดตแผน
+        is_ai_update_turn = (time_since_update >= 4.5) 
+
+    # 2. ตรวจสอบสถานะ AI และระบบ Retry[cite: 2]
     if is_ai_update_turn and not ai.AI_IS_ONLINE:
         shared_state.AI_RETRY_COUNT = getattr(shared_state, 'AI_RETRY_COUNT', 0) + 1
         logging.getLogger("System").warning(f"⚠️ พยายามปลุก AI ให้ตื่น (รอบที่ {shared_state.AI_RETRY_COUNT}/5)...")
+        # ❌ ไม่บันทึกเวลาตรงนี้ เพื่อให้รอบถัดไป (นาทีที่ 1) ยังเป็น is_ai_update_turn=True อยู่ และ Retry ต่อได้ทันที[cite: 2]
+        
     elif ai.AI_IS_ONLINE:
         shared_state.AI_RETRY_COUNT = 0 
+        # ✅ บันทึกเวลาเมื่อ AI ออนไลน์และถึงรอบอัปเดตเท่านั้น[cite: 2]
+        if is_ai_update_turn:
+            shared_state.LAST_AI_UPDATE_TIME = now 
 
+    # 3. ระบบจำศีลเมื่อ AI หายสาบสูญ[cite: 2]
     if getattr(shared_state, 'AI_RETRY_COUNT', 0) >= 5:
         shared_state.BOT_STATE = "COOLDOWN"
         shared_state.COOLDOWN_REMAINING = 30

@@ -69,28 +69,34 @@ class RiskManager:
         print(f"✅ [Risk Manager] ทิศทางปลอดภัย (Trend: {trend} | Order: {order})")
         return False # ไม่สวนเทรนด์ = ปลอดภัย ยิงได้!
     
-    def is_spread_too_high(self, symbol, max_spread):
+    def is_spread_too_high(self, symbol, ai_recommended_spread):
         """
         [Agent 3] ระบบกรองสเปรด (Dynamic Spread Filter)
-        เช็คค่า Spread ปัจจุบันว่ากว้างเกินกว่าที่รับได้หรือไม่ (ป้องกันช่วงกราฟกระชาก/ตลาดเปิด)
+        เช็คค่า Spread ปัจจุบันว่ากว้างเกินกว่าที่รับได้หรือไม่
         """
         try:
-            # ดึงข้อมูลล่าสุดของคู่เงิน/เหรียญ จาก MT5
+            # 1. ดึงข้อมูลล่าสุดจาก MT5
             symbol_info = mt5.symbol_info(symbol)
             
             if symbol_info is None:
                 print(f"⚠️ [Risk Manager] หาข้อมูลสเปรดของ {symbol} ไม่เจอ รบกวนเช็คชื่อ Symbol ครับ")
-                return True # ปลอดภัยไว้ก่อน บล็อกการเทรดถ้าหาข้อมูลไม่เจอ
+                return True # บล็อกไว้ก่อนเพื่อความปลอดภัย
             
+            # 2. เตรียมข้อมูล Spread และเพดาน (Threshold)
             current_spread = symbol_info.spread
             
-            if current_spread > max_spread:
-                print(f"🛑 [Risk Manager] เตะปลั๊ก! สเปรดถ่างเกินไป (Current: {current_spread} > Max: {max_spread}) รอกราฟนิ่งก่อน!")
+            # 🧠 ใช้ค่าที่ AI แนะนำมา ถ้า AI ไม่ส่งมา (None/False) ให้ใช้ 60 เป็นค่ามาตรฐาน
+            threshold = ai_recommended_spread if ai_recommended_spread else 60
+
+            # 3. ตรวจสอบเงื่อนไข (ใช้ชื่อตัวแปร threshold ให้ตรงกัน)
+            if current_spread > threshold:
+                print(f"🛑 [Risk Manager] เตะปลั๊ก! สเปรดถ่างเกินไป (Current: {current_spread} > AI Limit: {threshold})")
                 return True # สเปรดถ่าง = ติดบล็อก ห้ามยิง
                 
             print(f"✅ [Risk Manager] สเปรดอยู่ในเกณฑ์ปกติ (Spread: {current_spread})")
-            return False # สเปรดปกติ = ปลอดภัย ยิงได้!
+            return False # ผ่าน! ยิงได้
 
         except Exception as e:
+            # 🛡️ เข็มขัดนิรภัย: ถ้ามี Error อะไรก็ตาม ให้บล็อกการเทรดทันที
             print(f"⚠️ [Error] RiskManager.is_spread_too_high: {e}")
-            return True # ถ้ามี Error ให้บล็อกการเทรดไว้ก่อนเพื่อความปลอดภัย
+            return True
