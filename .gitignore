@@ -36,6 +36,7 @@ __pycache__/
 /backup/
 backup/
 settings.txt
+Demo account.txt
 
 # PyInstaller
 #   Usually these files are written by a python script from a template

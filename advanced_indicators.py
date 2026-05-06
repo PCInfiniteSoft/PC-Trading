@@ -120,3 +120,75 @@ def get_macro_trends(symbol):
             trends[key] = "UPTREND 🟢" if curr_close > long_stop else "DOWNTREND 🔴"
             
     return trends
+
+def get_trend_confirmation(symbol, order_type: str, timeframe=mt5.TIMEFRAME_M15) -> dict:
+    """
+    [Fix #3] ตรวจสอบ momentum confirmation ก่อนยิงออเดอร์
+    ใช้ MACD crossover + EMA alignment เพื่อกรอง false signal จาก RSI
+    
+    คืนค่า dict:
+        confirmed (bool)  — True ถ้าทิศทางสอดคล้อง
+        macd_signal (str) — "BULLISH" / "BEARISH" / "NEUTRAL"
+        ema_aligned (bool) — True ถ้า EMA20 > EMA50 (BUY) หรือ EMA20 < EMA50 (SELL)
+        reason (str)      — คำอธิบายสั้น ๆ สำหรับ log
+    """
+    result = {"confirmed": False, "macd_signal": "NEUTRAL", "ema_aligned": False, "reason": "Insufficient data"}
+
+    rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, 100)
+    if rates is None or len(rates) < 60:
+        return result
+
+    df = pd.DataFrame(rates)
+    close = df['close']
+
+    # --- MACD (12, 26, 9) ---
+    ema12 = close.ewm(span=12, adjust=False).mean()
+    ema26 = close.ewm(span=26, adjust=False).mean()
+    macd_line = ema12 - ema26
+    signal_line = macd_line.ewm(span=9, adjust=False).mean()
+
+    macd_now = macd_line.iloc[-1]
+    macd_prev = macd_line.iloc[-2]
+    sig_now = signal_line.iloc[-1]
+    sig_prev = signal_line.iloc[-2]
+
+    # Crossover detection
+    bullish_cross = (macd_prev < sig_prev) and (macd_now >= sig_now)
+    bearish_cross = (macd_prev > sig_prev) and (macd_now <= sig_now)
+    macd_above = macd_now > sig_now
+    macd_below = macd_now < sig_now
+
+    if bullish_cross or macd_above:
+        macd_signal = "BULLISH"
+    elif bearish_cross or macd_below:
+        macd_signal = "BEARISH"
+    else:
+        macd_signal = "NEUTRAL"
+
+    # --- EMA Alignment (20 / 50) ---
+    ema20 = close.ewm(span=20, adjust=False).mean().iloc[-1]
+    ema50 = close.ewm(span=50, adjust=False).mean().iloc[-1]
+    ema_aligned_buy  = ema20 > ema50
+    ema_aligned_sell = ema20 < ema50
+
+    order = order_type.upper()
+
+    if order == "BUY":
+        ema_aligned = ema_aligned_buy
+        confirmed = (macd_signal == "BULLISH") and ema_aligned
+        reason = f"MACD={macd_signal} | EMA20({'>' if ema_aligned_buy else '<'}EMA50)"
+    elif order == "SELL":
+        ema_aligned = ema_aligned_sell
+        confirmed = (macd_signal == "BEARISH") and ema_aligned
+        reason = f"MACD={macd_signal} | EMA20({'<' if ema_aligned_sell else '>'}EMA50)"
+    else:
+        ema_aligned = False
+        confirmed = False
+        reason = f"Unknown order type: {order_type}"
+
+    return {
+        "confirmed": confirmed,
+        "macd_signal": macd_signal,
+        "ema_aligned": ema_aligned,
+        "reason": reason
+    }

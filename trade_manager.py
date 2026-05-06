@@ -15,6 +15,37 @@ from risk_manager import RiskManager
 
 agent3 = RiskManager(db_path="trading_history.db")
 
+# ==========================================
+# 🔌 MT5 Reconnect Watchdog
+# ==========================================
+import asyncio as _asyncio
+
+async def ensure_mt5_connected(retries: int = 3, delay: float = 5.0) -> bool:
+    """
+    ตรวจสอบว่า MT5 ยังเชื่อมต่ออยู่หรือไม่
+    ถ้าหลุด → พยายาม reconnect สูงสุด `retries` ครั้ง ห่างกัน `delay` วินาที
+    คืนค่า True ถ้าเชื่อมต่อสำเร็จ, False ถ้าล้มเหลวทุกครั้ง
+    """
+    log = logging.getLogger("System")
+
+    # เช็คเร็วก่อน — ถ้า terminal ตอบสนองอยู่ไม่ต้องทำอะไร
+    if mt5.terminal_info() is not None:
+        return True
+
+    for attempt in range(1, retries + 1):
+        log.warning(f"🔌 [Watchdog] MT5 ไม่ตอบสนอง — พยายาม reconnect ครั้งที่ {attempt}/{retries}...")
+        if mt5.initialize(login=ACCOUNT_ID, password=PWD, server=SRV):
+            shared_state.IS_MT5_DOWN = False
+            log.info("✅ [Watchdog] MT5 reconnect สำเร็จ!")
+            return True
+        if attempt < retries:
+            await _asyncio.sleep(delay)
+
+    shared_state.MT5_DISCONNECT_COUNT = getattr(shared_state, 'MT5_DISCONNECT_COUNT', 0) + 1
+    shared_state.IS_MT5_DOWN = True
+    log.error(f"🚨 [Watchdog] MT5 reconnect ล้มเหลวทุกครั้ง! ({retries} attempts)")
+    return False
+
 @tasks.loop(minutes=1)
 async def trading_job():
 
@@ -45,13 +76,8 @@ async def trading_job():
                     return
         return
 
-    if not mt5.initialize(login=ACCOUNT_ID, password=PWD, server=SRV): 
-        if not getattr(shared_state, 'IS_MT5_DOWN', False):
-            shared_state.MT5_DISCONNECT_COUNT = getattr(shared_state, 'MT5_DISCONNECT_COUNT', 0) + 1
-            shared_state.IS_MT5_DOWN = True
+    if not await ensure_mt5_connected():
         return
-    else:
-        shared_state.IS_MT5_DOWN = False
     
     now = datetime.now()
     now_time = now.time()
@@ -148,7 +174,8 @@ async def trading_job():
             
             await ai.ai_update_strategy(s, get_win_loss_text())
             if not mt5.positions_get(symbol=s):
-                shared_state.TRADE_LAYERS[s] = {"buy": [False]*5, "sell": [False]*5}
+                async with shared_state.trade_layers_lock:
+                    shared_state.TRADE_LAYERS[s] = {"buy": [False]*5, "sell": [False]*5}
 
         strat = ai.STRATEGY_DATA[s]
 
@@ -197,6 +224,12 @@ async def trading_job():
                     
                     # 🛡️ อนุญาตให้ยิง BUY ได้ ก็ต่อเมื่อ Agent 0 สั่งเป็น BUY_ONLY หรือ BOTH เท่านั้น
                     if allowed_dir in ["BUY_ONLY", "BOTH"]:
+                        # [Fix #3] ตรวจสอบ MACD + EMA confirmation ก่อนส่งให้ AI
+                        trend_conf = adv.get_trend_confirmation(s, "BUY")
+                        if not trend_conf["confirmed"]:
+                            logging.getLogger(s).info(f"⏭️ [Trend Filter] BUY ถูกกรองออก — {trend_conf['reason']}")
+                            continue
+                        logging.getLogger(s).info(f"✅ [Trend Filter] BUY ผ่านการยืนยัน — {trend_conf['reason']}")
                         if ai.AI_IS_ONLINE:
                             tick = mt5.symbol_info_tick(s)
                             if tick is not None:
@@ -206,7 +239,7 @@ async def trading_job():
 
                                 risk = getattr(shared_state, 'CURRENT_RISK_LEVEL', 3)
                                 t_score = 2 if risk == 5 else 4 if risk == 4 else 8 if risk <= 2 else 6
-                                score = int(ans.get('score', 0))
+                                score = round(float(ans.get('score', 0)), 1)
                                 
                                 # ถ้า AI สั่ง BUY หรือ ถ้าคะแนนถึงเกณฑ์ ก็บังคับลั่นไกเลย!
                                 if ans.get('decision') == "BUY" or score >= t_score:
@@ -224,7 +257,8 @@ async def trading_job():
                                     
                                     # ส่งคำสั่งให้ MT5
                                     if place_order(s, "BUY", tick.ask, rsi, f"L{i+1}:Score={score}"): 
-                                        shared_state.TRADE_LAYERS.setdefault(s, {"buy":[False]*5, "sell":[False]*5})["buy"][i] = True
+                                        async with shared_state.trade_layers_lock:
+                                            shared_state.TRADE_LAYERS.setdefault(s, {"buy":[False]*5, "sell":[False]*5})["buy"][i] = True
                                         has_buy = True
                                     else:
                                         log.error(f"❌ [MT5] ยิงคำสั่ง BUY ไม่เข้า! (MT5 ปฏิเสธการเข้าออเดอร์)")
@@ -248,6 +282,12 @@ async def trading_job():
                     
                     # 🛡️ อนุญาตให้ยิง SELL ได้ ก็ต่อเมื่อ Agent 0 สั่งเป็น SELL_ONLY หรือ BOTH เท่านั้น
                     if allowed_dir in ["SELL_ONLY", "BOTH"]:
+                        # [Fix #3] ตรวจสอบ MACD + EMA confirmation ก่อนส่งให้ AI
+                        trend_conf = adv.get_trend_confirmation(s, "SELL")
+                        if not trend_conf["confirmed"]:
+                            logging.getLogger(s).info(f"⏭️ [Trend Filter] SELL ถูกกรองออก — {trend_conf['reason']}")
+                            continue
+                        logging.getLogger(s).info(f"✅ [Trend Filter] SELL ผ่านการยืนยัน — {trend_conf['reason']}")
                         if ai.AI_IS_ONLINE:
                             tick = mt5.symbol_info_tick(s)
                             if tick is not None:
@@ -257,7 +297,7 @@ async def trading_job():
                                 
                                 risk = getattr(shared_state, 'CURRENT_RISK_LEVEL', 3)
                                 t_score = 2 if risk == 5 else 4 if risk == 4 else 8 if risk <= 2 else 6
-                                score = int(ans.get('score', 0))
+                                score = round(float(ans.get('score', 0)), 1)
                                 
                                 # ถ้า AI สั่ง SELL หรือ ถ้าคะแนนถึงเกณฑ์ ก็บังคับลั่นไกเลย!
                                 if ans.get('decision') == "SELL" or score >= t_score:
@@ -276,7 +316,8 @@ async def trading_job():
                                     
                                     # ส่งคำสั่งให้ MT5
                                     if place_order(s, "SELL", tick.bid, rsi, f"L{i+1}:Score={score}"): 
-                                        shared_state.TRADE_LAYERS.setdefault(s, {"buy":[False]*5, "sell":[False]*5})["sell"][i] = True
+                                        async with shared_state.trade_layers_lock:
+                                            shared_state.TRADE_LAYERS.setdefault(s, {"buy":[False]*5, "sell":[False]*5})["sell"][i] = True
                                         has_sell = True
                                     else:
                                         log.error(f"❌ [MT5] ยิงคำสั่ง SELL ไม่เข้า! (MT5 ปฏิเสธการเข้าออเดอร์)")
@@ -385,7 +426,8 @@ async def trading_job():
                 )
                 logging.getLogger("System").info(f"📝 ตามเก็บ Record ที่ถูกโบรคเกอร์ปิดลง DB: ตั๋ว {ticket} ({reason})")
         
-        del shared_state.ACTIVE_TRADE_TRACKER[ticket]
+        async with shared_state.tracker_lock:
+            del shared_state.ACTIVE_TRADE_TRACKER[ticket]
 
     try:
         acc = mt5.account_info()
@@ -512,44 +554,33 @@ def place_order(symbol, type, price, rsi, comment):
         import logging
         logging.getLogger(symbol).error(f"❌ กระสุนด้าน! ส่งคำสั่งไม่ผ่าน Error Code: {err}")
         return False
-        
-    # 🟢 กรณีที่ 2: ยิงสำเร็จ!
-    if res.retcode == mt5.TRADE_RETCODE_DONE:
-        slippage = abs(res.price - price) / mt5.symbol_info(symbol).point
-        logging.getLogger(symbol).info(f"✅ {type} {symbol} {lot} lots at {price} (RSI: {rsi:.2f}) | {comment}")
-        # ... (โค้ดเดิมที่เหลือ ปล่อยไว้เหมือนเดิมได้เลยครับ)
-        
-        shared_state.ACTIVE_TRADE_TRACKER[res.order] = {"max_p": 0.0, "max_l": 0.0}
-        return True
-        
-    # 🔴 กรณีที่ 3: MT5 ตอบกลับมาว่า "ปฏิเสธการเข้าออเดอร์!" (เช่น เงินไม่พอ, สเปรดถ่าง, ฯลฯ)
-    else:
+
+    # 🔴 MT5 ปฏิเสธคำสั่ง (เช่น เงินไม่พอ, สเปรดถ่าง, ฯลฯ)
+    if res.retcode != mt5.TRADE_RETCODE_DONE:
         import logging
         logging.getLogger(symbol).error(f"❌ MT5 ปฏิเสธคำสั่ง! สาเหตุ: {res.comment} (Code: {res.retcode})")
         return False
-        
-        strat = ai.STRATEGY_DATA.get(symbol, {})
-        
-        # 🟢 ดึงข้อมูลของ Agent 0 (Macro Director) มาจาก shared_state
-        import shared_state
-        macro_data = getattr(shared_state, 'MACRO_DATA', {}).get(symbol, {})
-        m_bias = macro_data.get('bias', 'N/A')
-        a_dir = macro_data.get('allowed_direction', 'BOTH')
-        
-        # 🟢 ส่งข้อมูลทั้งหมดเข้า DB ให้ครบถ้วน
-        dbm.log_trade_entry(
-            ticket=res.order, symbol=symbol, order_type=type, lot_size=lot, 
-            entry_price=res.price, entry_reason=comment, slippage=slippage,
-            rsi_entry=rsi, market_regime=strat.get("regime", "N/A"),
-            vol_thresh=strat.get("threshold", 0.0), risk_level=risk_level,
-            macro_bias=m_bias, allowed_dir=a_dir
-        )
-        
-        shared_state.ACTIVE_TRADE_TRACKER[res.order] = {"max_p": 0.0, "max_l": 0.0}
-        return True
 
-    logging.getLogger(symbol).error(f"❌ {type} Error: {res.comment}")
-    return False
+    # 🟢 ยิงสำเร็จ! — บันทึก DB + อัปเดต tracker ทั้งหมดในบล็อกเดียว
+    import logging
+    slippage = abs(res.price - price) / mt5.symbol_info(symbol).point
+    logging.getLogger(symbol).info(f"✅ {type} {symbol} {lot} lots at {res.price} (RSI: {rsi:.2f}) | {comment} | Slip: {slippage:.1f}pts")
+
+    strat = ai.STRATEGY_DATA.get(symbol, {})
+    macro_data = getattr(shared_state, 'MACRO_DATA', {}).get(symbol, {})
+    m_bias = macro_data.get('bias', 'N/A')
+    a_dir = macro_data.get('allowed_direction', 'BOTH')
+
+    dbm.log_trade_entry(
+        ticket=res.order, symbol=symbol, order_type=type, lot_size=lot,
+        entry_price=res.price, entry_reason=comment, slippage=slippage,
+        rsi_entry=rsi, market_regime=strat.get("regime", "N/A"),
+        vol_thresh=strat.get("threshold", 0.0), risk_level=risk_level,
+        macro_bias=m_bias, allowed_dir=a_dir
+    )
+
+    shared_state.ACTIVE_TRADE_TRACKER[res.order] = {"max_p": 0.0, "max_l": 0.0}
+    return True
 
 def modify_position_sltp(ticket, symbol, new_sl, new_tp):
 

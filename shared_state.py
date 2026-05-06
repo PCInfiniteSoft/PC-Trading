@@ -1,4 +1,5 @@
 import queue
+import asyncio
 
 BOT_STATE = "STOPPED" 
 log_queue = queue.Queue()
@@ -18,3 +19,8 @@ MT5_DISCONNECT_COUNT = 0
 AI_DISCONNECT_COUNT = 0
 DISCORD_DISCONNECT_COUNT = 0
 LAST_REPORT_HOUR = -1
+
+# 🔒 Asyncio locks — ป้องกัน race condition บน TRADE_LAYERS และ ACTIVE_TRADE_TRACKER
+# ใช้: async with shared_state.trade_layers_lock: / async with shared_state.tracker_lock:
+trade_layers_lock = asyncio.Lock()
+tracker_lock = asyncio.Lock()
