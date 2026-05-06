@@ -157,6 +157,15 @@ async def ai_check_cooldown(symbol, prices, volumes):
 
 async def ai_analysis(symbol, price, rsi, st_data):
     global AI_IS_ONLINE, AI_ERROR_CODE
+    import shared_state
+    
+    # 🟢 1. ปรับคะแนนเป้าหมายในการเหนี่ยวไก ตาม Risk Level หน้าจอ
+    risk = getattr(shared_state, 'CURRENT_RISK_LEVEL', 3)
+    if risk == 5: trigger_score = 2   # Level 5 สายซิ่ง: มีแค่ RSI ถึงเป้าก็ยิงเลย (2 แต้มผ่าน)
+    elif risk == 4: trigger_score = 4 # Level 4 ซิ่งกลางๆ: ขอมี RSI + เทรนด์ หรือ RSI + โซน
+    elif risk <= 2: trigger_score = 8 # Level 1-2 อนุรักษ์นิยม: ต้องมาครบทุกอย่างถึงจะยอมยิง
+    else: trigger_score = 6           # Level 3 มาตรฐานเดิม
+
     prompt = (
         f"Symbol {symbol} Price {price} RSI {rsi:.2f} Market {STRATEGY_DATA[symbol]['regime']}. "
         f"Technical: [H1 Supertrend: {st_data['supertrend_h1']}] | "
@@ -174,7 +183,7 @@ async def ai_analysis(symbol, price, rsi, st_data):
         f"1. H1 Supertrend is DOWNTREND 🔴 (+4 points)\n"
         f"2. Current price is near or in Supply Zone (+4 points)\n"
         f"3. RSI is above 60 (+2 points)\n"
-        f"\n🔴 TRIGGER RULE: If Total Score >= 6, approve trade! Otherwise, HOLD.\n"
+        f"\n🔴 TRIGGER RULE: If Total Score >= {trigger_score}, approve trade! Otherwise, HOLD.\n"
         f"Provide JSON ONLY: {{\"score\": int, \"decision\": \"BUY/SELL/HOLD\", \"reason\": \"string detail\"}}"
     )
     try:
@@ -185,16 +194,16 @@ async def ai_analysis(symbol, price, rsi, st_data):
                 {"role": "user", "content": prompt}
             ],
             response_format={"type": "json_object"},
-            timeout=20.0 # 🟢 กันค้าง
+            temperature=0.2, # ลดอุณหภูมิลงนิดนึงให้วิเคราะห์นิ่งขึ้น
+            timeout=20.0 
         )
         AI_IS_ONLINE, AI_ERROR_CODE = True, ""
         return json.loads(response.choices[0].message.content)
     except Exception as e:
+        import re
         AI_IS_ONLINE = False
         AI_ERROR_CODE = re.search(r"\d{3}", str(e)).group() if re.search(r"\d{3}", str(e)) else "Err"
-        logging.getLogger("System").warning(f"⚠️ AI Offline ({AI_ERROR_CODE}) - บังคับระงับออเดอร์เพื่อความปลอดภัย")
         return {"score": 0, "decision": "HOLD", "reason": f"AI Error (Safety Block)"}
-
 async def ai_macro_analysis(symbol, h4_trend, d1_trend, news_data):
     
     prompt = MACRO_DIRECTOR_PROMPT.format(

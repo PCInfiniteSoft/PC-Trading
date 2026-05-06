@@ -202,7 +202,8 @@ async def trading_job():
                             if tick is not None:
                                 st_data = adv.get_3_indicators(s) 
                                 ans = await ai.ai_analysis(s, tick.ask, rsi, st_data) # ขา Buy ใช้ tick.ask
-                                
+                                logging.getLogger(s).info(f"🧠 [Agent 2] Score: {ans.get('score')} | Action: {ans.get('decision')} | Reason: {ans.get('reason')}")
+
                                 if ans.get('decision') == "BUY":
                                     # 🛡️ [Agent 3] ด่านตรวจความปลอดภัยก่อนลั่นไก
                                     if agent3.is_cooldown_active(cooldown_minutes=5): continue
@@ -238,6 +239,7 @@ async def trading_job():
                             if tick is not None:
                                 st_data = adv.get_3_indicators(s) 
                                 ans = await ai.ai_analysis(s, tick.bid, rsi, st_data) # ขา Sell ต้องใช้ tick.bid
+                                logging.getLogger(s).info(f"🧠 [Agent 2] Score: {ans.get('score')} | Action: {ans.get('decision')} | Reason: {ans.get('reason')}")
                                 
                                 if ans.get('decision') == "SELL":
                                     # 🛡️ [Agent 3] ด่านตรวจความปลอดภัยก่อนลั่นไก
