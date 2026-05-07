@@ -265,7 +265,6 @@ Output STRICT valid JSON only:
 
         STRATEGY_DATA[symbol]["buy"]          = sorted(data['buy_levels'],  reverse=True)
         STRATEGY_DATA[symbol]["sell"]         = sorted(data['sell_levels'])
-        STRATEGY_DATA[symbol]["regime"]       = data['regime']
         STRATEGY_DATA[symbol]["threshold"]    = float(data.get('spike_threshold', 0.5))
         STRATEGY_DATA[symbol]["tp_activation"]  = float(data.get('tp_activation', 3.0))
         STRATEGY_DATA[symbol]["pullback_pct"]   = float(data.get('pullback_pct', 0.30))
@@ -273,9 +272,42 @@ Output STRICT valid JSON only:
         STRATEGY_DATA[symbol]["be_lock_profit"] = float(data.get('be_lock_profit', 0.20))
         STRATEGY_DATA[symbol]["max_spread"]     = int(data.get('max_spread', 60))
 
+        # ── [FIX 3] Regime stability lock ─────────────────────────────────────
+        # ป้องกัน regime เปลี่ยนทุกรอบ — ต้องเห็น regime เดิม MIN_CONFIRMATIONS รอบติดกัน
+        new_regime = data['regime']
+        stab = shared_state.REGIME_STABILITY.setdefault(symbol, {
+            "current": new_regime, "count": 1,
+            "pending": new_regime, "pending_count": 1
+        })
+
+        if new_regime == stab["current"]:
+            # regime เดิม ไม่ต้องเปลี่ยน reset pending
+            stab["count"] += 1
+            stab["pending"] = new_regime
+            stab["pending_count"] = 1
+        elif new_regime == stab["pending"]:
+            # regime ใหม่ปรากฎซ้ำ นับขึ้น
+            stab["pending_count"] += 1
+            if stab["pending_count"] >= shared_state.REGIME_MIN_CONFIRMATIONS:
+                old = stab["current"]
+                stab["current"] = new_regime
+                stab["count"]   = stab["pending_count"]
+                logging.getLogger(symbol).info(
+                    f"📊 [REGIME] เปลี่ยน {old} → {new_regime} "
+                    f"(confirmed {stab['pending_count']}x)")
+        else:
+            # regime ใหม่ที่ต่างออกไป เริ่มนับใหม่
+            stab["pending"]       = new_regime
+            stab["pending_count"] = 1
+
+        # ใช้ regime ที่ stable เท่านั้น
+        STRATEGY_DATA[symbol]["regime"] = stab["current"]
+        # ─────────────────────────────────────────────────────────────────────
+
         logging.getLogger(symbol).info(
             f"🔄 [STRATEGY] {symbol} | RSI: {rsi_now} | ATR%: {atr_pct} | "
-            f"Regime: {STRATEGY_DATA[symbol]['regime']} | "
+            f"Regime: {STRATEGY_DATA[symbol]['regime']} "
+            f"(raw: {new_regime}) | "
             f"Buy[0]: {STRATEGY_DATA[symbol]['buy'][0]} | "
             f"Sell[0]: {STRATEGY_DATA[symbol]['sell'][0]}"
         )

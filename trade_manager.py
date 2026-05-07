@@ -248,8 +248,7 @@ async def trading_job():
                     
                     # 🛡️ อนุญาตให้ยิง BUY ได้ ก็ต่อเมื่อ DIRECTOR สั่งเป็น BUY_ONLY หรือ BOTH เท่านั้น
                     if allowed_dir in ["BUY_ONLY", "BOTH"]:
-                        # [UPGRADE #7] SCOUT is now a score modifier inside ANALYST — no hard gate here
-                        # Just log the SCOUT score for visibility
+                        # [FIX] SCOUT ต้องรู้ว่ากำลังจะ BUY — ส่ง "BUY" ตรงๆ
                         scout = adv.get_scout_score(s, "BUY")
                         logging.getLogger(s).info(f"🔭 [SCOUT] BUY pre-check — {scout['reason']}")
                         if ai.AI_IS_ONLINE:
@@ -306,7 +305,7 @@ async def trading_job():
                     
                     # 🛡️ อนุญาตให้ยิง SELL ได้ ก็ต่อเมื่อ DIRECTOR สั่งเป็น SELL_ONLY หรือ BOTH เท่านั้น
                     if allowed_dir in ["SELL_ONLY", "BOTH"]:
-                        # [UPGRADE #7] SCOUT score modifier — log only, decision inside ANALYST
+                        # [FIX] SCOUT ต้องรู้ว่ากำลังจะ SELL — ส่ง "SELL" ตรงๆ
                         scout = adv.get_scout_score(s, "SELL")
                         logging.getLogger(s).info(f"🔭 [SCOUT] SELL pre-check — {scout['reason']}")
                         if ai.AI_IS_ONLINE:

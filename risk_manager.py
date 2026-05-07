@@ -95,7 +95,18 @@ class RiskManager:
     # ══════════════════════════════════════════════════════════════
 
     def is_spread_too_high(self, symbol, ai_recommended_spread):
-        """[GUARDIAN] Block order if current spread exceeds ANALYST's max_spread."""
+        """
+        [GUARDIAN] Dynamic spread filter.
+        Calculates a fair max_spread based on current ATR instead of
+        relying solely on ANALYST's static recommendation.
+
+        Logic:
+          dynamic_limit = max(ai_recommended_spread, ATR_in_points × multiplier)
+          multiplier = 0.5 → allows spread up to 50% of current ATR range
+
+        This means in volatile markets the limit widens automatically,
+        and in quiet markets it tightens — without needing a new AI call.
+        """
         import logging
         log = logging.getLogger("System")
         try:
@@ -105,14 +116,36 @@ class RiskManager:
                 return True  # block for safety
 
             current_spread = symbol_info.spread
-            threshold      = ai_recommended_spread if ai_recommended_spread else 60
+            point          = symbol_info.point or 1e-5
+
+            # ── Compute ATR-based dynamic limit ──────────────────
+            import MetaTrader5 as _mt5
+            import pandas as pd
+            rates = _mt5.copy_rates_from_pos(symbol, _mt5.TIMEFRAME_M5, 0, 20)
+            atr_limit = None
+            if rates is not None and len(rates) >= 14:
+                df     = pd.DataFrame(rates)
+                df['tr'] = pd.concat([
+                    df['high'] - df['low'],
+                    (df['high'] - df['close'].shift()).abs(),
+                    (df['low']  - df['close'].shift()).abs()
+                ], axis=1).max(axis=1)
+                atr_pts   = df['tr'].rolling(14).mean().iloc[-1] / point
+                atr_limit = int(atr_pts * 0.5)   # 50% of ATR range
+
+            # ── Choose the more permissive of ATR-limit vs AI recommendation ──
+            ai_limit  = int(ai_recommended_spread) if ai_recommended_spread else 300
+            threshold = max(ai_limit, atr_limit) if atr_limit else ai_limit
 
             if current_spread > threshold:
                 log.warning(
-                    f"🛑 [GUARDIAN] Spread too wide — {current_spread} > {threshold} ({symbol})")
+                    f"🛑 [GUARDIAN] Spread too wide — {current_spread} > {threshold} "
+                    f"(AI:{ai_limit} | ATR-based:{atr_limit}) [{symbol}]")
                 return True
 
-            log.info(f"✅ [GUARDIAN] Spread OK — {current_spread} pts ({symbol})")
+            log.info(
+                f"✅ [GUARDIAN] Spread OK — {current_spread}/{threshold} pts "
+                f"(AI:{ai_limit} | ATR:{atr_limit}) [{symbol}]")
             return False
 
         except Exception as e:
