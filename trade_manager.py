@@ -33,17 +33,17 @@ async def ensure_mt5_connected(retries: int = 3, delay: float = 5.0) -> bool:
         return True
 
     for attempt in range(1, retries + 1):
-        log.warning(f"🔌 [Watchdog] MT5 ไม่ตอบสนอง — พยายาม reconnect ครั้งที่ {attempt}/{retries}...")
+        log.warning(f"🔌 [SENTINEL] MT5 ไม่ตอบสนอง — พยายาม reconnect ครั้งที่ {attempt}/{retries}...")
         if mt5.initialize(login=ACCOUNT_ID, password=PWD, server=SRV):
             shared_state.IS_MT5_DOWN = False
-            log.info("✅ [Watchdog] MT5 reconnect สำเร็จ!")
+            log.info("✅ [SENTINEL] MT5 reconnect สำเร็จ!")
             return True
         if attempt < retries:
             await _asyncio.sleep(delay)
 
     shared_state.MT5_DISCONNECT_COUNT = getattr(shared_state, 'MT5_DISCONNECT_COUNT', 0) + 1
     shared_state.IS_MT5_DOWN = True
-    log.error(f"🚨 [Watchdog] MT5 reconnect ล้มเหลวทุกครั้ง! ({retries} attempts)")
+    log.error(f"🚨 [SENTINEL] MT5 reconnect ล้มเหลวทุกครั้ง! ({retries} attempts)")
     return False
 
 @tasks.loop(minutes=1)
@@ -88,8 +88,24 @@ async def trading_job():
 
     last_macro = getattr(shared_state, 'LAST_MACRO_TIME', None)
 
-    if (is_macro_time or last_macro is None) and (last_macro is None or last_macro.minute != now.minute):
-        logging.getLogger("System").info("👑 [Agent 0] กำลังประเมินทิศทางตลาดและข่าวสาร (Macro Bias)...")
+    # [UPGRADE #5] Also trigger DIRECTOR refresh on ATR spike
+    atr_spike_detected = False
+    for s_check in SYMBOLS_CONFIG:
+        macro_d = getattr(shared_state, 'MACRO_DATA', {}).get(s_check, {})
+        if macro_d.get('atr_pct_h4', 0) > ai.ATR_SPIKE_THRESHOLD:
+            atr_spike_detected = True
+            break
+
+    needs_macro_refresh = (
+        (is_macro_time or last_macro is None or atr_spike_detected)
+        and (last_macro is None or last_macro.minute != now.minute)
+    )
+
+    if needs_macro_refresh:
+        if atr_spike_detected:
+            logging.getLogger("System").warning("⚡ [DIRECTOR] ATR spike — triggering early macro refresh")
+        else:
+            logging.getLogger("System").info("👑 [DIRECTOR] กำลังประเมินทิศทางตลาดและข่าวสาร (Macro Bias)...")
         
         try:
             symbols_list = list(SYMBOLS_CONFIG.keys())
@@ -99,27 +115,35 @@ async def trading_job():
             logging.getLogger("System").warning(f"⚠️ ดึงข่าวไม่สำเร็จ: {e}")
             today_news = "No news data available"
 
-        # 🟢 วนลูปให้ Agent 0 วิเคราะห์ทีละ Symbol
+        # 🟢 DIRECTOR วิเคราะห์ทีละ Symbol พร้อม ATR% [UPGRADE #5]
         for macro_symbol in SYMBOLS_CONFIG:
-            macro_trends = adv.get_macro_trends(macro_symbol) 
-            h4_trend_status = macro_trends["h4_trend"]
-            d1_trend_status = macro_trends["d1_trend"]
-            
-            # ส่งให้ Agent 0 วิเคราะห์แยกทีละคู่เงิน
-            await ai.ai_macro_analysis(macro_symbol, h4_trend_status, d1_trend_status, today_news)
+            macro_trends     = adv.get_macro_trends(macro_symbol)
+            h4_trend_status  = macro_trends["h4_trend"]
+            d1_trend_status  = macro_trends["d1_trend"]
+            atr_pct_h4       = macro_trends.get("atr_pct_h4", 0.0)
+            # Pass ATR% so DIRECTOR can flag elevated volatility
+            await ai.ai_macro_analysis(macro_symbol, h4_trend_status, d1_trend_status,
+                                       today_news, atr_pct_h4=atr_pct_h4)
         
-        # บันทึกเวลาเพื่อป้องกันการรันซ้ำ
         shared_state.LAST_MACRO_TIME = now
     
+    # [UPGRADE #6] Use per-event news windows (wider for NFP/FOMC)
     is_news_window = False
-    for nt in getattr(shared_state, 'TODAY_NEWS_TIMES', []):
-        news_dt = datetime.combine(now.date(), nt)
-        start_window = (news_dt - timedelta(minutes=5)).time()
-        end_window = (news_dt + timedelta(minutes=15)).time()
-        
-        if start_window <= now_time <= end_window:
-            is_news_window = True
-            break
+    news_windows = getattr(shared_state, 'NEWS_WINDOWS', [])
+    if news_windows:
+        for nw in news_windows:
+            if nw["start"] <= now_time <= nw["end"]:
+                is_news_window = True
+                break
+    else:
+        # fallback to old fixed window if NEWS_WINDOWS not populated yet
+        for nt in getattr(shared_state, 'TODAY_NEWS_TIMES', []):
+            news_dt      = datetime.combine(now.date(), nt)
+            start_window = (news_dt - timedelta(minutes=5)).time()
+            end_window   = (news_dt + timedelta(minutes=15)).time()
+            if start_window <= now_time <= end_window:
+                is_news_window = True
+                break
     if is_news_window and shared_state.CURRENT_LOOP_MINS != 1:
         shared_state.CURRENT_LOOP_MINS = 1
         logging.getLogger("System").warning("🚨 [HYPER-ACTIVE MODE] เข้าสู่ช่วงข่าวกล่องแดง! AI สแกนทุก 1 นาที")
@@ -218,24 +242,22 @@ async def trading_job():
                     
                 if not shared_state.TRADE_LAYERS.get(s, {}).get("buy", [False]*5)[i]:
                     
-                    # 👑 [ด่านตรวจ Agent 0] ดึงนโยบายเฉพาะคู่เงินนี้มาเช็ค
+                    # 👑 [ด่านตรวจ DIRECTOR] ดึงนโยบายเฉพาะคู่เงินนี้มาเช็ค
                     macro_data = getattr(shared_state, 'MACRO_DATA', {}).get(s, {})
                     allowed_dir = macro_data.get('allowed_direction', 'BOTH')
                     
-                    # 🛡️ อนุญาตให้ยิง BUY ได้ ก็ต่อเมื่อ Agent 0 สั่งเป็น BUY_ONLY หรือ BOTH เท่านั้น
+                    # 🛡️ อนุญาตให้ยิง BUY ได้ ก็ต่อเมื่อ DIRECTOR สั่งเป็น BUY_ONLY หรือ BOTH เท่านั้น
                     if allowed_dir in ["BUY_ONLY", "BOTH"]:
-                        # [Fix #3] ตรวจสอบ MACD + EMA confirmation ก่อนส่งให้ AI
-                        trend_conf = adv.get_trend_confirmation(s, "BUY")
-                        if not trend_conf["confirmed"]:
-                            logging.getLogger(s).info(f"⏭️ [Trend Filter] BUY ถูกกรองออก — {trend_conf['reason']}")
-                            continue
-                        logging.getLogger(s).info(f"✅ [Trend Filter] BUY ผ่านการยืนยัน — {trend_conf['reason']}")
+                        # [UPGRADE #7] SCOUT is now a score modifier inside ANALYST — no hard gate here
+                        # Just log the SCOUT score for visibility
+                        scout = adv.get_scout_score(s, "BUY")
+                        logging.getLogger(s).info(f"🔭 [SCOUT] BUY pre-check — {scout['reason']}")
                         if ai.AI_IS_ONLINE:
                             tick = mt5.symbol_info_tick(s)
                             if tick is not None:
                                 st_data = adv.get_3_indicators(s) 
                                 ans = await ai.ai_analysis(s, tick.ask, rsi, st_data) # ขา Buy ใช้ tick.ask
-                                logging.getLogger(s).info(f"🧠 [Agent 2] Score: {ans.get('score')} | Action: {ans.get('decision')} | Reason: {ans.get('reason')}")
+                                logging.getLogger(s).info(f"🧠 [ANALYST] Score: {ans.get('score')} | Action: {ans.get('decision')} | Reason: {ans.get('reason')}")
 
                                 risk = getattr(shared_state, 'CURRENT_RISK_LEVEL', 3)
                                 t_score = 2 if risk == 5 else 4 if risk == 4 else 8 if risk <= 2 else 6
@@ -245,15 +267,17 @@ async def trading_job():
                                 if ans.get('decision') == "BUY" or score >= t_score:
                                     log = logging.getLogger(s)
                                     
-                                    # 🛡️ [Agent 3] เช็คความปลอดภัย
+                                    # 🛡️ [GUARDIAN] เช็คความปลอดภัย
                                     if agent3.is_cooldown_active(cooldown_minutes=5): 
-                                        log.warning("⏳ [Agent 3] บล็อก! ติด Cooldown"); continue
+                                        log.warning("⏳ [GUARDIAN] บล็อก! ติด Cooldown (after SL)"); continue
                                     if agent3.is_against_trend(s, "BUY"): 
-                                        log.warning("🛑 [Agent 3] บล็อก! ทิศทาง BUY สวนนโยบาย"); continue
+                                        log.warning("🛑 [GUARDIAN] บล็อก! BUY สวนนโยบาย DIRECTOR"); continue
                                     if agent3.is_spread_too_high(s, strat.get('max_spread', 5000)): 
-                                        log.warning(f"⚠️ [Agent 3] บล็อก! สเปรดกว้างเกินไป (Max: {strat.get('max_spread')})"); continue
+                                        log.warning(f"⚠️ [GUARDIAN] บล็อก! Spread กว้างเกิน"); continue
+                                    if agent3.is_max_layers_hit(s, "BUY"):
+                                        log.warning(f"🛑 [GUARDIAN] บล็อก! ถึงขีดจำกัด {s} BUY layers"); continue
 
-                                    log.info(f"🎯 [Python] ผ่านด่าน Agent 3 แล้ว! กำลังส่งคำสั่ง BUY ไปที่ MT5...")
+                                    log.info(f"🎯 [Python] ผ่านด่าน Agent 3 แล้ว! กำลังส่งคำสั่ง BUY → MT5 (SENTINEL OK)...")
                                     
                                     # ส่งคำสั่งให้ MT5
                                     if place_order(s, "BUY", tick.ask, rsi, f"L{i+1}:Score={score}"): 
@@ -276,24 +300,21 @@ async def trading_job():
                 # ข. เปิดไม้ SELL สวนลงมา (ส่งให้ AI ยืนยัน)
                 if not shared_state.TRADE_LAYERS.get(s, {}).get("sell", [False]*5)[i]:
                     
-                    # 👑 [ด่านตรวจ Agent 0] ดึงนโยบายเฉพาะคู่เงินนี้มาเช็ค
+                    # 👑 [ด่านตรวจ DIRECTOR] ดึงนโยบายเฉพาะคู่เงินนี้มาเช็ค
                     macro_data = getattr(shared_state, 'MACRO_DATA', {}).get(s, {})
                     allowed_dir = macro_data.get('allowed_direction', 'BOTH')
                     
-                    # 🛡️ อนุญาตให้ยิง SELL ได้ ก็ต่อเมื่อ Agent 0 สั่งเป็น SELL_ONLY หรือ BOTH เท่านั้น
+                    # 🛡️ อนุญาตให้ยิง SELL ได้ ก็ต่อเมื่อ DIRECTOR สั่งเป็น SELL_ONLY หรือ BOTH เท่านั้น
                     if allowed_dir in ["SELL_ONLY", "BOTH"]:
-                        # [Fix #3] ตรวจสอบ MACD + EMA confirmation ก่อนส่งให้ AI
-                        trend_conf = adv.get_trend_confirmation(s, "SELL")
-                        if not trend_conf["confirmed"]:
-                            logging.getLogger(s).info(f"⏭️ [Trend Filter] SELL ถูกกรองออก — {trend_conf['reason']}")
-                            continue
-                        logging.getLogger(s).info(f"✅ [Trend Filter] SELL ผ่านการยืนยัน — {trend_conf['reason']}")
+                        # [UPGRADE #7] SCOUT score modifier — log only, decision inside ANALYST
+                        scout = adv.get_scout_score(s, "SELL")
+                        logging.getLogger(s).info(f"🔭 [SCOUT] SELL pre-check — {scout['reason']}")
                         if ai.AI_IS_ONLINE:
                             tick = mt5.symbol_info_tick(s)
                             if tick is not None:
                                 st_data = adv.get_3_indicators(s) 
                                 ans = await ai.ai_analysis(s, tick.bid, rsi, st_data) # ขา Sell ต้องใช้ tick.bid
-                                logging.getLogger(s).info(f"🧠 [Agent 2] Score: {ans.get('score')} | Action: {ans.get('decision')} | Reason: {ans.get('reason')}")
+                                logging.getLogger(s).info(f"🧠 [ANALYST] Score: {ans.get('score')} | Action: {ans.get('decision')} | Reason: {ans.get('reason')}")
                                 
                                 risk = getattr(shared_state, 'CURRENT_RISK_LEVEL', 3)
                                 t_score = 2 if risk == 5 else 4 if risk == 4 else 8 if risk <= 2 else 6
@@ -304,15 +325,17 @@ async def trading_job():
 
                                     log = logging.getLogger(s)
                                     
-                                    # 🛡️ [Agent 3] เช็คความปลอดภัย
+                                    # 🛡️ [GUARDIAN] เช็คความปลอดภัย
                                     if agent3.is_cooldown_active(cooldown_minutes=5): 
-                                        log.warning("⏳ [Agent 3] บล็อก! ติด Cooldown"); continue
+                                        log.warning("⏳ [GUARDIAN] บล็อก! ติด Cooldown (after SL)"); continue
                                     if agent3.is_against_trend(s, "SELL"): 
-                                        log.warning("🛑 [Agent 3] บล็อก! ทิศทาง SELL สวนนโยบาย"); continue
+                                        log.warning("🛑 [GUARDIAN] บล็อก! SELL สวนนโยบาย DIRECTOR"); continue
                                     if agent3.is_spread_too_high(s, strat.get('max_spread', 5000)): 
-                                        log.warning(f"⚠️ [Agent 3] บล็อก! สเปรดกว้างเกินไป (Max: {strat.get('max_spread')})"); continue
+                                        log.warning(f"⚠️ [GUARDIAN] บล็อก! Spread กว้างเกิน"); continue
+                                    if agent3.is_max_layers_hit(s, "SELL"):
+                                        log.warning(f"🛑 [GUARDIAN] บล็อก! ถึงขีดจำกัด {s} SELL layers"); continue
 
-                                    log.info(f"🎯 [Python] ผ่านด่าน Agent 3 แล้ว! กำลังส่งคำสั่ง SELL ไปที่ MT5...")
+                                    log.info(f"🎯 [Python] ผ่านด่าน Agent 3 แล้ว! กำลังส่งคำสั่ง SELL → MT5 (SENTINEL OK)...")
                                     
                                     # ส่งคำสั่งให้ MT5
                                     if place_order(s, "SELL", tick.bid, rsi, f"L{i+1}:Score={score}"): 
@@ -393,7 +416,7 @@ async def trading_job():
                 
                 if is_better:
                     if modify_position_sltp(ticket, symbol, new_sl_price, pos.tp):
-                        logging.getLogger(symbol).info(f"✅ [Agent 2] ขยับ SL ล็อกกำไร ({reason}) -> {new_sl_price}")
+                        logging.getLogger(symbol).info(f"✅ [ANALYST] ขยับ SL ล็อกกำไร ({reason}) -> {new_sl_price}")
 
     # ==========================================
     # 🟢 2. ระบบตามเก็บตกไม้ที่ถูกโบรคเกอร์ปิด (ชน SL/TP)

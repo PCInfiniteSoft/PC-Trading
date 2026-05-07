@@ -1,194 +1,210 @@
 import MetaTrader5 as mt5
 import pandas as pd
 
+# ══════════════════════════════════════════════════════════════════
+#  Helpers
+# ══════════════════════════════════════════════════════════════════
+
+def _calc_atr_chandelier(df, atr_period=14, chandelier_period=22, multiplier=3):
+    """Shared ATR + Chandelier Exit — avoids duplicating this everywhere."""
+    df = df.copy()
+    df['tr0'] = abs(df['high'] - df['low'])
+    df['tr1'] = abs(df['high'] - df['close'].shift())
+    df['tr2'] = abs(df['low']  - df['close'].shift())
+    df['tr']  = df[['tr0', 'tr1', 'tr2']].max(axis=1)
+    df['atr'] = df['tr'].rolling(atr_period).mean()
+    high_n = df['high'].rolling(chandelier_period).max()
+    low_n  = df['low'].rolling(chandelier_period).min()
+    df['long_stop']  = high_n - df['atr'] * multiplier
+    df['short_stop'] = low_n  + df['atr'] * multiplier
+    return df
+
+
+# ══════════════════════════════════════════════════════════════════
+#  RSI
+# ══════════════════════════════════════════════════════════════════
+
 def calculate_rsi(prices, period=14):
-    """คำนวณค่า RSI ปัจจุบัน"""
     if len(prices) < period:
         return 50.0
-    df = pd.DataFrame(prices, columns=['close'])
+    df    = pd.DataFrame(prices, columns=['close'])
     delta = df['close'].diff()
-    up = delta.clip(lower=0)
-    down = -1 * delta.clip(upper=0)
-    ema_up = up.ewm(com=period - 1, adjust=False).mean()
+    up    = delta.clip(lower=0)
+    down  = -1 * delta.clip(upper=0)
+    ema_up   = up.ewm(com=period - 1, adjust=False).mean()
     ema_down = down.ewm(com=period - 1, adjust=False).mean()
-    rs = ema_up / ema_down
+    rs  = ema_up / ema_down
     rsi = 100 - (100 / (1 + rs))
     return round(rsi.fillna(100).iloc[-1], 2)
 
+
+# ══════════════════════════════════════════════════════════════════
+#  [UPGRADE #4] Proper SMC Order Block detection
+#  Last opposing candle before a strong impulse move
+# ══════════════════════════════════════════════════════════════════
+
+def _find_smc_order_block(df, impulse_multiplier=1.5, lookback=30):
+    df = df.tail(lookback + 5).reset_index(drop=True)
+    result = {"type": "None", "high": 0, "low": 0, "open": 0, "close": 0, "age": 0}
+
+    for i in range(len(df) - 2, 1, -1):
+        body_next = abs(df.loc[i, 'close'] - df.loc[i, 'open'])
+        atr_val   = df.loc[i, 'atr']
+        if atr_val <= 0:
+            continue
+        if body_next <= impulse_multiplier * atr_val:
+            continue
+
+        bullish_impulse = df.loc[i, 'close'] > df.loc[i, 'open']
+        bearish_impulse = not bullish_impulse
+
+        for j in range(i - 1, max(i - 6, 0), -1):
+            prev_bull = df.loc[j, 'close'] > df.loc[j, 'open']
+            prev_bear = not prev_bull
+
+            if bullish_impulse and prev_bear:
+                return {"type": "Demand", "high": round(df.loc[j,'high'],5),
+                        "low": round(df.loc[j,'low'],5), "open": round(df.loc[j,'open'],5),
+                        "close": round(df.loc[j,'close'],5), "age": len(df)-1-j}
+            if bearish_impulse and prev_bull:
+                return {"type": "Supply", "high": round(df.loc[j,'high'],5),
+                        "low": round(df.loc[j,'low'],5), "open": round(df.loc[j,'open'],5),
+                        "close": round(df.loc[j,'close'],5), "age": len(df)-1-j}
+    return result
+
+
+# ══════════════════════════════════════════════════════════════════
+#  [UPGRADE #8] Partial zone proximity scoring for ANALYST
+# ══════════════════════════════════════════════════════════════════
+
+def score_zone_proximity(price, ob: dict, order_type: str) -> int:
+    """Returns 0, 2, or 4 points based on proximity to Order Block."""
+    if ob["type"] == "None":
+        return 0
+    order = order_type.upper()
+    zone_high, zone_low = ob["high"], ob["low"]
+
+    if order == "BUY" and ob["type"] == "Demand":
+        if zone_low <= price <= zone_high:
+            return 4   # inside zone
+        elif price <= zone_high * 1.003:
+            return 2   # within 0.3% above
+        return 0
+
+    if order == "SELL" and ob["type"] == "Supply":
+        if zone_low <= price <= zone_high:
+            return 4   # inside zone
+        elif price >= zone_low * 0.997:
+            return 2   # within 0.3% below
+        return 0
+
+    return 0
+
+
+# ══════════════════════════════════════════════════════════════════
+#  get_3_indicators — feeds ANALYST
+# ══════════════════════════════════════════════════════════════════
+
 def get_3_indicators(symbol, timeframe=mt5.TIMEFRAME_M15):
-    # ==========================================
-    # 📊 1. ดึงข้อมูลไทม์เฟรมปัจจุบัน (M15)
-    # ==========================================
-    rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, 50)
+    rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, 60)
     if rates is None or len(rates) < 50:
-        return {"supertrend": "N/A", "supertrend_h1": "N/A", "ob_zone": "N/A", "long_stop": 0, "short_stop": 0}
-    
-    df = pd.DataFrame(rates)
-    df['tr0'] = abs(df['high'] - df['low'])
-    df['tr1'] = abs(df['high'] - df['close'].shift())
-    df['tr2'] = abs(df['low'] - df['close'].shift())
-    df['tr'] = df[['tr0', 'tr1', 'tr2']].max(axis=1)
-    df['atr'] = df['tr'].rolling(14).mean()
-    
-    current_atr = df['atr'].iloc[-1]
-    current_close = df['close'].iloc[-1]
-    
-    # วิชาที่ 1: Chandelier Exit (จุดหนีตาย M15)
-    highest_22 = df['high'].rolling(22).max().iloc[-1]
-    lowest_22 = df['low'].rolling(22).min().iloc[-1]
-    long_stop = highest_22 - (current_atr * 3)
-    short_stop = lowest_22 + (current_atr * 3)
+        return {"supertrend": "N/A", "supertrend_h1": "N/A",
+                "ob_zone": "No Zone", "ob": {"type": "None"},
+                "long_stop": 0, "short_stop": 0}
 
-    # วิชาที่ 2: Supertrend (เทรนด์ M15)
-    st_dir = "UPTREND 🟢" if current_close > long_stop else "DOWNTREND 🔴"
+    df    = pd.DataFrame(rates)
+    df    = _calc_atr_chandelier(df)
+    curr  = df['close'].iloc[-1]
+    ls    = df['long_stop'].iloc[-1]
+    ss    = df['short_stop'].iloc[-1]
+    st    = "UPTREND 🟢" if curr > ls else "DOWNTREND 🔴"
 
-    # วิชาที่ 3: SMC Order Block (M15)
-    df['body'] = abs(df['close'] - df['open'])
-    big_candles = df[df['body'] > (df['atr'] * 1.5)]
-    ob_zone = "No Zone"
-    if not big_candles.empty:
-        last_big = big_candles.iloc[-1]
-        if last_big['close'] > last_big['open']:
-            ob_zone = f"Demand Zone {last_big['low']:.2f} - {last_big['open']:.2f}"
-        else:
-            ob_zone = f"Supply Zone {last_big['close']:.2f} - {last_big['high']:.2f}"
+    ob = _find_smc_order_block(df)
+    if ob["type"] == "Demand":
+        ob_zone = f"Demand Zone {ob['low']:.5f}-{ob['high']:.5f} (age {ob['age']}b)"
+    elif ob["type"] == "Supply":
+        ob_zone = f"Supply Zone {ob['low']:.5f}-{ob['high']:.5f} (age {ob['age']}b)"
+    else:
+        ob_zone = "No Zone"
 
-    # ==========================================
-    # 👑 2. ดึงข้อมูลพี่ใหญ่ ไทม์เฟรม 1 ชั่วโมง (H1)
-    # ==========================================
-    rates_h1 = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_H1, 0, 50)
-    st_dir_h1 = "N/A"
-    
+    # H1
+    rates_h1 = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_H1, 0, 60)
+    st_h1 = "N/A"
     if rates_h1 is not None and len(rates_h1) >= 50:
-        df_h1 = pd.DataFrame(rates_h1)
-        df_h1['tr0'] = abs(df_h1['high'] - df_h1['low'])
-        df_h1['tr1'] = abs(df_h1['high'] - df_h1['close'].shift())
-        df_h1['tr2'] = abs(df_h1['low'] - df_h1['close'].shift())
-        df_h1['tr'] = df_h1[['tr0', 'tr1', 'tr2']].max(axis=1)
-        df_h1['atr'] = df_h1['tr'].rolling(14).mean()
-        
-        curr_atr_h1 = df_h1['atr'].iloc[-1]
-        curr_close_h1 = df_h1['close'].iloc[-1]
-        
-        high_22_h1 = df_h1['high'].rolling(22).max().iloc[-1]
-        long_stop_h1 = high_22_h1 - (curr_atr_h1 * 3)
-        
-        st_dir_h1 = "UPTREND 🟢" if curr_close_h1 > long_stop_h1 else "DOWNTREND 🔴"
+        df_h1 = _calc_atr_chandelier(pd.DataFrame(rates_h1))
+        st_h1 = "UPTREND 🟢" if df_h1['close'].iloc[-1] > df_h1['long_stop'].iloc[-1] else "DOWNTREND 🔴"
 
-    # ส่งค่าทั้งหมดกลับไปให้ AI ตัดสินใจ
-    return {
-        "supertrend": st_dir,           # เทรนด์ M15
-        "supertrend_h1": st_dir_h1,     # เทรนด์ H1 (ตัวคุมเกม)
-        "ob_zone": ob_zone,             # โซนเด้ง
-        "long_stop": round(long_stop, 2),
-        "short_stop": round(short_stop, 2)
-    }
+    return {"supertrend": st, "supertrend_h1": st_h1,
+            "ob_zone": ob_zone, "ob": ob,
+            "long_stop": round(ls,5), "short_stop": round(ss,5)}
+
+
+# ══════════════════════════════════════════════════════════════════
+#  get_macro_trends — feeds DIRECTOR
+#  [UPGRADE #5] Returns atr_pct_h4 for intraday regime detection
+# ══════════════════════════════════════════════════════════════════
 
 def get_macro_trends(symbol):
-    """
-    อ่านค่ากราฟ H4 และ D1 เพื่อหาแนวโน้มหลักของตลาด
-    """
-    trends = {"h4_trend": "SIDEWAY", "d1_trend": "SIDEWAY"}
-    
-    # วนลูปดึงข้อมูลทั้ง 2 ไทม์เฟรม
-    timeframes = [
-        (mt5.TIMEFRAME_H4, "h4_trend"),
-        (mt5.TIMEFRAME_D1, "d1_trend")
-    ]
-    
-    for tf, key in timeframes:
+    trends = {"h4_trend": "SIDEWAY", "d1_trend": "SIDEWAY", "atr_pct_h4": 0.0}
+    for tf, key in [(mt5.TIMEFRAME_H4, "h4_trend"), (mt5.TIMEFRAME_D1, "d1_trend")]:
         rates = mt5.copy_rates_from_pos(symbol, tf, 0, 50)
-        
-        if rates is not None and len(rates) >= 50:
-            df = pd.DataFrame(rates)
-            
-            # คำนวณ ATR เพื่อใช้วัดความผันผวน
-            df['tr0'] = abs(df['high'] - df['low'])
-            df['tr1'] = abs(df['high'] - df['close'].shift())
-            df['tr2'] = abs(df['low'] - df['close'].shift())
-            df['tr'] = df[['tr0', 'tr1', 'tr2']].max(axis=1)
-            df['atr'] = df['tr'].rolling(14).mean()
-            
-            curr_atr = df['atr'].iloc[-1]
-            curr_close = df['close'].iloc[-1]
-            
-            # คำนวณ Chandelier Exit (สูตรเดียวกับ M15 ของพี่)
-            high_22 = df['high'].rolling(22).max().iloc[-1]
-            long_stop = high_22 - (curr_atr * 3)
-            
-            # ตัดสินเทรนด์
-            trends[key] = "UPTREND 🟢" if curr_close > long_stop else "DOWNTREND 🔴"
-            
+        if rates is None or len(rates) < 50:
+            continue
+        df   = _calc_atr_chandelier(pd.DataFrame(rates))
+        curr = df['close'].iloc[-1]
+        trends[key] = "UPTREND 🟢" if curr > df['long_stop'].iloc[-1] else "DOWNTREND 🔴"
+        if tf == mt5.TIMEFRAME_H4 and curr > 0:
+            trends["atr_pct_h4"] = round(df['atr'].iloc[-1] / curr * 100, 3)
     return trends
 
-def get_trend_confirmation(symbol, order_type: str, timeframe=mt5.TIMEFRAME_M15) -> dict:
+
+# ══════════════════════════════════════════════════════════════════
+#  SCOUT — momentum pre-filter
+#  [UPGRADE #7] Score modifier (+0/+1/+2) instead of hard gate
+# ══════════════════════════════════════════════════════════════════
+
+def get_scout_score(symbol, order_type: str, timeframe=mt5.TIMEFRAME_M15) -> dict:
     """
-    [Fix #3] ตรวจสอบ momentum confirmation ก่อนยิงออเดอร์
-    ใช้ MACD crossover + EMA alignment เพื่อกรอง false signal จาก RSI
-    
-    คืนค่า dict:
-        confirmed (bool)  — True ถ้าทิศทางสอดคล้อง
-        macd_signal (str) — "BULLISH" / "BEARISH" / "NEUTRAL"
-        ema_aligned (bool) — True ถ้า EMA20 > EMA50 (BUY) หรือ EMA20 < EMA50 (SELL)
-        reason (str)      — คำอธิบายสั้น ๆ สำหรับ log
+    SCOUT: MACD crossover + EMA alignment.
+    Returns score modifier 0-2 pts that ANALYST adds to its total.
     """
-    result = {"confirmed": False, "macd_signal": "NEUTRAL", "ema_aligned": False, "reason": "Insufficient data"}
+    result = {"score": 0, "macd_signal": "NEUTRAL", "ema_aligned": False,
+              "reason": "Insufficient data"}
 
     rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, 100)
     if rates is None or len(rates) < 60:
         return result
 
-    df = pd.DataFrame(rates)
-    close = df['close']
-
-    # --- MACD (12, 26, 9) ---
+    close = pd.DataFrame(rates)['close']
     ema12 = close.ewm(span=12, adjust=False).mean()
     ema26 = close.ewm(span=26, adjust=False).mean()
-    macd_line = ema12 - ema26
-    signal_line = macd_line.ewm(span=9, adjust=False).mean()
+    macd  = ema12 - ema26
+    sig   = macd.ewm(span=9, adjust=False).mean()
 
-    macd_now = macd_line.iloc[-1]
-    macd_prev = macd_line.iloc[-2]
-    sig_now = signal_line.iloc[-1]
-    sig_prev = signal_line.iloc[-2]
+    bullish_cross = (macd.iloc[-2] < sig.iloc[-2]) and (macd.iloc[-1] >= sig.iloc[-1])
+    bearish_cross = (macd.iloc[-2] > sig.iloc[-2]) and (macd.iloc[-1] <= sig.iloc[-1])
 
-    # Crossover detection
-    bullish_cross = (macd_prev < sig_prev) and (macd_now >= sig_now)
-    bearish_cross = (macd_prev > sig_prev) and (macd_now <= sig_now)
-    macd_above = macd_now > sig_now
-    macd_below = macd_now < sig_now
-
-    if bullish_cross or macd_above:
-        macd_signal = "BULLISH"
-    elif bearish_cross or macd_below:
-        macd_signal = "BEARISH"
+    if bullish_cross or macd.iloc[-1] > sig.iloc[-1]:
+        macd_sig = "BULLISH"
+    elif bearish_cross or macd.iloc[-1] < sig.iloc[-1]:
+        macd_sig = "BEARISH"
     else:
-        macd_signal = "NEUTRAL"
+        macd_sig = "NEUTRAL"
 
-    # --- EMA Alignment (20 / 50) ---
     ema20 = close.ewm(span=20, adjust=False).mean().iloc[-1]
     ema50 = close.ewm(span=50, adjust=False).mean().iloc[-1]
-    ema_aligned_buy  = ema20 > ema50
-    ema_aligned_sell = ema20 < ema50
-
     order = order_type.upper()
 
-    if order == "BUY":
-        ema_aligned = ema_aligned_buy
-        confirmed = (macd_signal == "BULLISH") and ema_aligned
-        reason = f"MACD={macd_signal} | EMA20({'>' if ema_aligned_buy else '<'}EMA50)"
-    elif order == "SELL":
-        ema_aligned = ema_aligned_sell
-        confirmed = (macd_signal == "BEARISH") and ema_aligned
-        reason = f"MACD={macd_signal} | EMA20({'<' if ema_aligned_sell else '>'}EMA50)"
-    else:
-        ema_aligned = False
-        confirmed = False
-        reason = f"Unknown order type: {order_type}"
+    ema_aligned = (ema20 > ema50) if order == "BUY" else (ema20 < ema50)
+    macd_match  = (macd_sig == "BULLISH") if order == "BUY" else (macd_sig == "BEARISH")
+    score = int(macd_match) + int(ema_aligned)
 
-    return {
-        "confirmed": confirmed,
-        "macd_signal": macd_signal,
-        "ema_aligned": ema_aligned,
-        "reason": reason
-    }
+    return {"score": score, "macd_signal": macd_sig, "ema_aligned": ema_aligned,
+            "reason": f"MACD={macd_sig} | EMA20{'>' if ema20>ema50 else '<'}EMA50 | SCOUT+{score}pts"}
+
+
+# Backwards-compat alias
+def get_trend_confirmation(symbol, order_type: str, timeframe=mt5.TIMEFRAME_M15) -> dict:
+    s = get_scout_score(symbol, order_type, timeframe)
+    return {"confirmed": s["score"] == 2, "macd_signal": s["macd_signal"],
+            "ema_aligned": s["ema_aligned"], "reason": s["reason"]}

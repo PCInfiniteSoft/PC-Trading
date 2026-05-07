@@ -1,108 +1,151 @@
+"""
+GUARDIAN (was Agent 3) — Risk Gate
+Enforces all pre-trade safety checks before any order fires.
+
+Checks (in order):
+  1. is_cooldown_active   — only blocks after SL hit, NOT after TP  [UPGRADE #3]
+  2. is_against_trend     — DIRECTOR policy alignment
+  3. is_spread_too_high   — dynamic spread filter
+  4. is_max_layers_hit    — prevents martingale runaway  [UPGRADE #9]
+"""
+
 import sqlite3
 import shared_state
 import MetaTrader5 as mt5
 from datetime import datetime, timedelta
 
+# ── Max open layers per symbol to prevent martingale runaway ──────
+MAX_LAYERS_PER_SYMBOL = 3   # [UPGRADE #9] was effectively 5 (no limit)
+
+
 class RiskManager:
     def __init__(self, db_path="trading_history.db"):
         self.db_path = db_path
 
+    # ══════════════════════════════════════════════════════════════
+    #  [UPGRADE #3] Cooldown: only block after SL, not after TP
+    # ══════════════════════════════════════════════════════════════
+
     def is_cooldown_active(self, cooldown_minutes=5):
         """
-        [Agent 3] เช็คว่าบอทเพิ่งปิดออเดอร์ (หรือโดน SL) ไปไม่นานหรือไม่
-        ถ้ายังอยู่ในช่วง Cooldown จะ return True (ห้ามเทรด)
+        [GUARDIAN] Block trading only after a Stop Loss hit.
+        A Take Profit close should NOT trigger cooldown — momentum may continue.
         """
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn   = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
-            
-            # ดึงเวลาที่ปิดออเดอร์ล่าสุดจากตาราง trade_history
+
+            # Only consider SL exits for cooldown
             cursor.execute("""
-                SELECT exit_time 
-                FROM trade_history 
-                WHERE exit_time IS NOT NULL 
+                SELECT exit_time, exit_reason
+                FROM trade_history
+                WHERE exit_time IS NOT NULL
+                  AND exit_reason LIKE '%Stop Loss%'
                 ORDER BY exit_time DESC LIMIT 1
             """)
-            result = cursor.fetchone()
+            result = conn.fetchone() if False else cursor.fetchone()
             conn.close()
 
             if result and result[0]:
-                last_exit_str = result[0]
-                # แปลง String จาก DB เป็น Datetime
-                # สมมติฐานว่า format ใน DB คือ 'YYYY-MM-DD HH:MM:SS'
-                last_exit_time = datetime.strptime(last_exit_str, "%Y-%m-%d %H:%M:%S")
-                current_time = datetime.now()
-                
-                # คำนวณระยะเวลาที่ผ่านไป
-                time_passed = current_time - last_exit_time
-                
-                if time_passed < timedelta(minutes=cooldown_minutes):
-                    minutes_left = cooldown_minutes - (time_passed.total_seconds() / 60)
-                    print(f"🛑 [Risk Manager] เตะปลั๊ก! ระบบติด Cooldown ต้องพักอีก {minutes_left:.1f} นาที")
-                    return True # ติด Cooldown อยู่ ห้ามลั่นไก!
-            
-            return False # พ้น Cooldown แล้ว ปลอดภัย!
+                last_sl_time = datetime.strptime(result[0], "%Y-%m-%d %H:%M:%S")
+                elapsed      = datetime.now() - last_sl_time
+
+                if elapsed < timedelta(minutes=cooldown_minutes):
+                    remaining = cooldown_minutes - elapsed.total_seconds() / 60
+                    import logging
+                    logging.getLogger("System").warning(
+                        f"⏳ [GUARDIAN] Cooldown after SL — {remaining:.1f}m remaining")
+                    return True
+
+            return False
 
         except Exception as e:
-            print(f"⚠️ [Error] RiskManager.is_cooldown_active: {e}")
-            # กรณีหา DB ไม่เจอ หรือเพิ่งรันครั้งแรก ให้ถือว่าไม่ติด Cooldown
-            return False
-        
+            import logging
+            logging.getLogger("System").warning(f"⚠️ [GUARDIAN] cooldown check error: {e}")
+            return False   # fail-open: don't block if DB unreadable on first run
+
+    # ══════════════════════════════════════════════════════════════
+    #  Trend alignment — DIRECTOR policy
+    # ══════════════════════════════════════════════════════════════
+
     def is_against_trend(self, symbol, order_type):
-        """
-        [Agent 3] กฎเหล็กล็อกเทรนด์ (Hard Block)
-        เชื่อมต่อกับ Agent 0 เพื่อเช็คว่าคำสั่งซื้อขายสวนทางนโยบายหลักหรือไม่
-        """        
-        # ดึงนโยบายจาก Agent 0 (Macro Director)
-        macro_data = getattr(shared_state, 'MACRO_DATA', {}).get(symbol, {})
+        """[GUARDIAN] Block order if it contradicts DIRECTOR's allowed_direction."""
+        macro_data  = getattr(shared_state, 'MACRO_DATA', {}).get(symbol, {})
         allowed_dir = macro_data.get('allowed_direction', 'BOTH')
-        bias = macro_data.get('bias', 'SIDEWAY')
-        
-        order = str(order_type).upper()
+        bias        = macro_data.get('bias', 'SIDEWAY')
+        order       = str(order_type).upper()
+        import logging
+        log = logging.getLogger("System")
 
         if allowed_dir == "SELL_ONLY" and order == "BUY":
-            print(f"🛑 [Risk Manager] เตะปลั๊ก! Agent 0 สั่งห้าม BUY (Macro Bias: {bias})")
-            return True 
-            
-        elif allowed_dir == "BUY_ONLY" and order == "SELL":
-            print(f"🛑 [Risk Manager] เตะปลั๊ก! Agent 0 สั่งห้าม SELL (Macro Bias: {bias})")
-            return True 
-            
-        elif allowed_dir == "NONE":
-            print(f"🛑 [Risk Manager] เตะปลั๊ก! Agent 0 สั่งงดเทรดชั่วคราว")
+            log.warning(f"🛑 [GUARDIAN] Blocked BUY — DIRECTOR: {bias} ({allowed_dir})")
             return True
-            
-        print(f"✅ [Risk Manager] ทิศทางปลอดภัย (Order: {order} | Allow: {allowed_dir})")
-        return False
-    
-    def is_spread_too_high(self, symbol, ai_recommended_spread):
-        """
-        [Agent 3] ระบบกรองสเปรด (Dynamic Spread Filter)
-        เช็คค่า Spread ปัจจุบันว่ากว้างเกินกว่าที่รับได้หรือไม่
-        """
-        try:
-            # 1. ดึงข้อมูลล่าสุดจาก MT5
-            symbol_info = mt5.symbol_info(symbol)
-            
-            if symbol_info is None:
-                print(f"⚠️ [Risk Manager] หาข้อมูลสเปรดของ {symbol} ไม่เจอ รบกวนเช็คชื่อ Symbol ครับ")
-                return True # บล็อกไว้ก่อนเพื่อความปลอดภัย
-            
-            # 2. เตรียมข้อมูล Spread และเพดาน (Threshold)
-            current_spread = symbol_info.spread
-            
-            # 🧠 ใช้ค่าที่ AI แนะนำมา ถ้า AI ไม่ส่งมา (None/False) ให้ใช้ 60 เป็นค่ามาตรฐาน
-            threshold = ai_recommended_spread if ai_recommended_spread else 60
+        if allowed_dir == "BUY_ONLY" and order == "SELL":
+            log.warning(f"🛑 [GUARDIAN] Blocked SELL — DIRECTOR: {bias} ({allowed_dir})")
+            return True
+        if allowed_dir == "NONE":
+            log.warning(f"🛑 [GUARDIAN] Blocked — DIRECTOR paused trading ({bias})")
+            return True
 
-            # 3. ตรวจสอบเงื่อนไข (ใช้ชื่อตัวแปร threshold ให้ตรงกัน)
+        log.info(f"✅ [GUARDIAN] Trend OK — {order} | DIRECTOR: {allowed_dir}")
+        return False
+
+    # ══════════════════════════════════════════════════════════════
+    #  Spread filter
+    # ══════════════════════════════════════════════════════════════
+
+    def is_spread_too_high(self, symbol, ai_recommended_spread):
+        """[GUARDIAN] Block order if current spread exceeds ANALYST's max_spread."""
+        import logging
+        log = logging.getLogger("System")
+        try:
+            symbol_info = mt5.symbol_info(symbol)
+            if symbol_info is None:
+                log.warning(f"⚠️ [GUARDIAN] Cannot get symbol info for {symbol}")
+                return True  # block for safety
+
+            current_spread = symbol_info.spread
+            threshold      = ai_recommended_spread if ai_recommended_spread else 60
+
             if current_spread > threshold:
-                print(f"🛑 [Risk Manager] เตะปลั๊ก! สเปรดถ่างเกินไป (Current: {current_spread} > AI Limit: {threshold})")
-                return True # สเปรดถ่าง = ติดบล็อก ห้ามยิง
-                
-            print(f"✅ [Risk Manager] สเปรดอยู่ในเกณฑ์ปกติ (Spread: {current_spread})")
-            return False # ผ่าน! ยิงได้
+                log.warning(
+                    f"🛑 [GUARDIAN] Spread too wide — {current_spread} > {threshold} ({symbol})")
+                return True
+
+            log.info(f"✅ [GUARDIAN] Spread OK — {current_spread} pts ({symbol})")
+            return False
 
         except Exception as e:
-            # 🛡️ เข็มขัดนิรภัย: ถ้ามี Error อะไรก็ตาม ให้บล็อกการเทรดทันที
-            print(f"⚠️ [Error] RiskManager.is_spread_too_high: {e}")
-            return True
+            logging.getLogger("System").warning(f"⚠️ [GUARDIAN] spread check error: {e}")
+            return True  # fail-closed on spread
+
+    # ══════════════════════════════════════════════════════════════
+    #  [UPGRADE #9] Max layers per symbol — prevent martingale runaway
+    # ══════════════════════════════════════════════════════════════
+
+    def is_max_layers_hit(self, symbol, order_type, max_layers=MAX_LAYERS_PER_SYMBOL):
+        """
+        [GUARDIAN] Block new order if the number of open positions for
+        this symbol + direction already reaches max_layers.
+        Prevents the 5-layer RSI system from compounding losses indefinitely.
+        """
+        import logging
+        log = logging.getLogger("System")
+        try:
+            positions = mt5.positions_get(symbol=symbol) or []
+            order     = str(order_type).upper()
+            mt5_type  = mt5.ORDER_TYPE_BUY if order == "BUY" else mt5.ORDER_TYPE_SELL
+            count     = sum(1 for p in positions if p.type == mt5_type)
+
+            if count >= max_layers:
+                log.warning(
+                    f"🛑 [GUARDIAN] Max layers hit — {symbol} {order}: "
+                    f"{count}/{max_layers} open")
+                return True
+
+            log.info(f"✅ [GUARDIAN] Layers OK — {symbol} {order}: {count}/{max_layers}")
+            return False
+
+        except Exception as e:
+            logging.getLogger("System").warning(f"⚠️ [GUARDIAN] max_layers check error: {e}")
+            return False  # fail-open: don't block if MT5 unresponsive
