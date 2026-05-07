@@ -234,22 +234,27 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
   <div style="overflow-y:auto;">
     <div class="agent-row">
       <div class="ag-ic" style="background:rgba(255,193,7,.1)">👑</div>
-      <div style="flex:1;min-width:0"><div class="ag-name">Agent 0 — Macro</div><div class="ag-sub" id="ag0-sub">—</div></div>
+      <div style="flex:1;min-width:0"><div class="ag-name">DIRECTOR — Macro</div><div class="ag-sub" id="ag0-sub">—</div></div>
       <span class="badge" id="ag0-badge">—</span>
     </div>
     <div class="agent-row">
       <div class="ag-ic" style="background:rgba(0,153,255,.1)">🧠</div>
-      <div style="flex:1;min-width:0"><div class="ag-name">Agent 2 — Entry AI</div><div class="ag-sub" id="ag2-sub">—</div></div>
+      <div style="flex:1;min-width:0"><div class="ag-name">ANALYST — Entry AI</div><div class="ag-sub" id="ag2-sub">—</div></div>
       <span class="badge" id="ag2-badge">—</span>
     </div>
     <div class="agent-row">
+      <div class="ag-ic" style="background:rgba(0,212,170,.1)">🔭</div>
+      <div style="flex:1;min-width:0"><div class="ag-name">SCOUT — Momentum</div><div class="ag-sub" id="scout-sub">MACD · EMA20/50 · +0/+1/+2</div></div>
+      <span class="badge bon">ON</span>
+    </div>
+    <div class="agent-row">
       <div class="ag-ic" style="background:rgba(0,212,170,.1)">🛡️</div>
-      <div style="flex:1;min-width:0"><div class="ag-name">Agent 3 — Risk Gate</div><div class="ag-sub">Spread · Trend · Cooldown</div></div>
+      <div style="flex:1;min-width:0"><div class="ag-name">GUARDIAN — Risk Gate</div><div class="ag-sub">Spread · Trend · Cooldown · Layers</div></div>
       <span class="badge bon">ON</span>
     </div>
     <div class="agent-row">
       <div class="ag-ic" style="background:rgba(255,107,53,.1)">🔌</div>
-      <div style="flex:1;min-width:0"><div class="ag-name">MT5 Watchdog</div><div class="ag-sub" id="mt5-sub">—</div></div>
+      <div style="flex:1;min-width:0"><div class="ag-name">SENTINEL — MT5 Watchdog</div><div class="ag-sub" id="mt5-sub">—</div></div>
       <span class="badge" id="mt5-badge">—</span>
     </div>
     <div class="agent-row">
@@ -652,7 +657,7 @@ async function fetchAndRender(){
     const mt5Disc = d.mt5_disconnects||0;
     $('ag0-sub').textContent = d.symbols ? Object.entries(d.symbols).map(([s,v])=>`${s}: ${v.allowed_dir||'N/A'}`).join(' · ') : '—';
     $('ag0-badge').textContent = 'ON'; $('ag0-badge').className='badge bon';
-    $('ag2-sub').textContent = `Trend filter active`;
+    $('ag2-sub').textContent = `Score modifier active · MACD+EMA`;
     $('ag2-badge').textContent = 'ON'; $('ag2-badge').className='badge bon';
     $('mt5-sub').textContent = `Reconnects: ${mt5Disc}`;
     $('mt5-badge').textContent = d.state&&d.state!=='STOPPED'?'ON':'OFF';
