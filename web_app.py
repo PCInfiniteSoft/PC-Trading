@@ -1,43 +1,179 @@
-import streamlit as st
+"""
+PC Trading — Web Dashboard Server
+รัน: python web_app.py
+เปิดเบราว์เซอร์: http://localhost:8080
+"""
+
 import json
+import os
+import sqlite3
+import threading
 import time
-import pandas as pd
+from datetime import datetime
+from pathlib import Path
 
-st.set_page_config(page_title="PC Trading Dashboard", layout="wide")
+from flask import Flask, jsonify, send_from_directory, abort
 
-st.title("📊 PC Trading Web Dashboard")
+app = Flask(__name__, static_folder=".")
 
-# 🟢 ฟังก์ชันดึงข้อมูลจากไฟล์
-def load_data():
+STATUS_FILE = "bot_status.json"
+DB_FILE     = "trading_history.db"
+
+# ── In-memory log buffer ───────────────────────────────────────
+_log_buffer = []
+_log_lock   = threading.Lock()
+MAX_LOGS    = 200
+
+def push_log(time_str: str, level: str, msg: str):
+    """เรียกจาก GUIHandler เพื่อ push log เข้า buffer"""
+    with _log_lock:
+        _log_buffer.append({"time": time_str, "level": level, "msg": msg})
+        if len(_log_buffer) > MAX_LOGS:
+            _log_buffer.pop(0)
+
+# ── Helpers ───────────────────────────────────────────────────
+
+def _read_status() -> dict:
     try:
-        with open("bot_status.json", "r") as f:
+        with open(STATUS_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
-    except:
-        return None
+    except Exception:
+        return {}
 
-data = load_data()
+def _query_db(sql: str, params: tuple = ()) -> list:
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute(sql, params)
+        rows = [dict(r) for r in cur.fetchall()]
+        conn.close()
+        return rows
+    except Exception:
+        return []
 
-if data:
-    # --- แถวบน: Status ทั่วไป ---
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Bot State", data["state"])
-    col2.metric("Total Balance", f"${data['balance']:,.2f}")
-    col3.metric("Risk Level", f"Level {data['risk_level']}/5")
 
-    st.divider()
+# ══════════════════════════════════════════════════════════════
+# REST API
+# ══════════════════════════════════════════════════════════════
 
-    # --- แถวกลาง: ข้อมูลรายคู่เงิน ---
-    cols = st.columns(len(data["symbols"]))
-    for i, (symbol, info) in enumerate(data["symbols"].items()):
-        with cols[i]:
-            st.subheader(f"🔷 {symbol}")
-            st.write(f"**Price:** {info['price']:,.2f}")
-            st.write(f"**RSI:** {info['rsi']:.2f}")
-            st.info(f"Regime: {info['regime']}")
+@app.route("/api/status")
+def api_status():
+    data = _read_status()
+    with _log_lock:
+        data["logs"] = list(reversed(_log_buffer[-50:]))
+    return jsonify(data)
 
-else:
-    st.warning("⏳ กำลังรอข้อมูลจากบอทเทรด...")
 
-# สั่งให้ Refresh หน้าเว็บเองอัตโนมัติทุก 10 วินาที
-time.sleep(10)
-st.rerun()
+@app.route("/api/trades")
+def api_trades():
+    rows = _query_db("""
+        SELECT th.ticket, th.symbol, th.order_type, th.lot_size,
+               th.entry_time, th.entry_price, th.exit_time, th.exit_price,
+               ROUND(th.net_profit,2) AS net_profit, th.exit_reason,
+               mc.market_regime, mc.rsi_entry, mc.macro_bias, mc.allowed_dir, mc.risk_level
+        FROM trade_history th
+        LEFT JOIN market_context mc ON th.ticket = mc.ticket
+        WHERE th.exit_time IS NOT NULL
+        ORDER BY th.exit_time DESC LIMIT 200
+    """)
+    return jsonify({"trades": rows, "count": len(rows)})
+
+
+@app.route("/api/performance")
+def api_performance():
+    daily = _query_db("""
+        SELECT date(exit_time) AS day,
+               ROUND(SUM(net_profit),2) AS pnl,
+               COUNT(*) AS trades,
+               SUM(CASE WHEN net_profit>0 THEN 1 ELSE 0 END) AS wins
+        FROM trade_history WHERE exit_time IS NOT NULL
+        GROUP BY date(exit_time) ORDER BY day ASC LIMIT 90
+    """)
+    by_strategy = _query_db("""
+        SELECT mc.market_regime AS strategy,
+               COUNT(*) AS trades,
+               SUM(CASE WHEN th.net_profit>0 THEN 1 ELSE 0 END) AS wins,
+               ROUND(SUM(th.net_profit),2) AS total_pnl,
+               ROUND(AVG(th.net_profit),4) AS avg_pnl
+        FROM trade_history th
+        LEFT JOIN market_context mc ON th.ticket=mc.ticket
+        WHERE th.exit_time IS NOT NULL
+          AND th.exit_time >= datetime('now','-30 days')
+        GROUP BY mc.market_regime ORDER BY total_pnl DESC
+    """)
+    for r in by_strategy:
+        r["win_rate"] = round(r["wins"]/r["trades"]*100, 1) if r["trades"] else 0
+
+    by_symbol = _query_db("""
+        SELECT symbol, COUNT(*) AS trades,
+               SUM(CASE WHEN net_profit>0 THEN 1 ELSE 0 END) AS wins,
+               ROUND(SUM(net_profit),2) AS total_pnl
+        FROM trade_history
+        WHERE exit_time IS NOT NULL AND exit_time >= datetime('now','-30 days')
+        GROUP BY symbol ORDER BY total_pnl DESC
+    """)
+    for r in by_symbol:
+        r["win_rate"] = round(r["wins"]/r["trades"]*100, 1) if r["trades"] else 0
+
+    return jsonify({"daily": daily, "by_strategy": by_strategy, "by_symbol": by_symbol})
+
+
+@app.route("/api/logs")
+def api_logs():
+    with _log_lock:
+        return jsonify({"logs": list(reversed(_log_buffer))})
+
+
+@app.route("/api/health")
+def api_health():
+    try:
+        mtime = os.path.getmtime(STATUS_FILE)
+        age   = round(time.time() - mtime, 1)
+        last  = datetime.fromtimestamp(mtime).strftime("%H:%M:%S")
+    except Exception:
+        age, last = 999, "N/A"
+    return jsonify({"ok": age < 60, "last_update": last, "age_secs": age,
+                    "server_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+
+
+# ══════════════════════════════════════════════════════════════
+# Serve dashboard.html
+# ══════════════════════════════════════════════════════════════
+
+DASHBOARD_HTML = Path(__file__).parent / "dashboard.html"
+
+@app.route("/")
+def index():
+    if DASHBOARD_HTML.exists():
+        return send_from_directory(str(DASHBOARD_HTML.parent), "dashboard.html")
+    return ("<h2 style='font-family:monospace;color:#0f0;background:#000;padding:20px'>"
+            "⚠️ dashboard.html not found — place it next to web_app.py</h2>"), 404
+
+
+@app.route("/<path:filename>")
+def static_files(filename):
+    p = Path(__file__).parent / filename
+    if p.exists() and p.is_file():
+        return send_from_directory(str(p.parent), p.name)
+    abort(404)
+
+
+# ══════════════════════════════════════════════════════════════
+# Entry point
+# ══════════════════════════════════════════════════════════════
+
+def start_web_server(host: str = "0.0.0.0", port: int = 8080):
+    """เรียกจาก gui_main.py เพื่อรัน Flask ใน background thread"""
+    t = threading.Thread(
+        target=lambda: app.run(host=host, port=port, debug=False, use_reloader=False),
+        daemon=True, name="WebDashboard"
+    )
+    t.start()
+    import logging
+    logging.getLogger("System").info(f"🌐 Web Dashboard เริ่มทำงานที่ http://localhost:{port}")
+
+
+if __name__ == "__main__":
+    print("🌐 PC Trading Web Dashboard  →  http://localhost:8080\n")
+    app.run(host="0.0.0.0", port=8080, debug=True)

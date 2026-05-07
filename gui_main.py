@@ -11,6 +11,7 @@ import advanced_indicators as adv
 import system_logs as slogs
 import system_utils as sutils
 import ui_components as uic
+import web_app as webapp
 from datetime import datetime, timezone
 from discord.ext import tasks
 from bot_config import *
@@ -22,6 +23,8 @@ app_instance = None
 @bot.event
 async def on_ready():
     logging.getLogger("System").info("✅ Discord Bot Online")
+    # 🌐 เริ่ม Web Dashboard ใน background thread
+    webapp.start_web_server(port=8080)
     if not tm.trading_job.is_running(): tm.trading_job.start()
     if not scheduled_reports.is_running(): scheduled_reports.start()
     if mt5.terminal_info() is not None and app_instance is not None:

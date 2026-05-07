@@ -5,3 +5,4 @@ customtkinter
 pillow
 requests
 python-dotenv
+flask
