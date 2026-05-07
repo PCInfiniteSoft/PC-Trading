@@ -179,6 +179,8 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
   <div class="tb-stat"><span class="lbl">Today P&L</span><span class="val" id="tb-today">—</span></div>
   <div class="tb-stat"><span class="lbl">Drawdown</span><span class="val" id="tb-dd">—</span></div>
   <div class="tb-stat"><span class="lbl">Open</span><span class="val" id="tb-open">—</span></div>
+  <div class="tb-stat"><span class="lbl">Total Trades</span><span class="val b" id="tb-total">—</span></div>
+  <div class="tb-stat"><span class="lbl">Win Rate</span><span class="val" id="tb-wr">—</span></div>
   <div class="tb-stat"><span class="lbl">Scan #</span><span class="val a" id="tb-scan">—</span></div>
   <div class="regime-wrap">
     <div class="rdot" id="rdot"></div>
@@ -268,11 +270,13 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
 <!-- MAIN CENTER -->
 <div class="main">
   <!-- Stats row -->
-  <div class="stats-row">
+  <div class="stats-row" style="grid-template-columns:repeat(8,1fr);">
     <div class="sc"><span class="lbl">Bot State</span><span class="val g" id="s-state">—</span><span class="sub" id="s-state-sub">—</span></div>
     <div class="sc"><span class="lbl">Balance</span><span class="val" id="s-balance">—</span><span class="sub" id="s-equity">—</span></div>
     <div class="sc"><span class="lbl">Float P&L</span><span class="val" id="s-float">—</span><span class="sub" id="s-open">— positions</span></div>
     <div class="sc"><span class="lbl">Drawdown</span><span class="val" id="s-dd">—</span><span class="sub" id="s-dd-sub">—</span></div>
+    <div class="sc"><span class="lbl">Total Trades</span><span class="val b" id="s-total-trades">—</span><span class="sub" id="s-total-sub">— closed</span></div>
+    <div class="sc"><span class="lbl">Overall Win Rate</span><span class="val" id="s-winrate">—</span><span class="sub" id="s-winrate-sub">W: — / L: —</span></div>
     <div class="sc"><span class="lbl">Scan Loop</span><span class="val a" id="s-loop">—</span><span class="sub" id="s-scan">Scan #—</span></div>
     <div class="sc"><span class="lbl">Risk Level</span><span class="val y" id="s-risk">—</span><span class="sub">Max DD: <span id="s-maxdd">—</span></span></div>
   </div>
@@ -628,6 +632,23 @@ async function fetchAndRender(){
     $('s-scan').textContent = `Scan #${d.scan_count||0}`;
     $('s-risk').textContent = `${risk}/5`;
     $('s-maxdd').textContent = `${maxDD}%`;
+
+    // ── Total trades + win rate from performance data ──
+    const allStrats = perf.by_strategy || [];
+    const totalTrades = allStrats.reduce((s, r) => s + (r.trades||0), 0);
+    const totalWins   = allStrats.reduce((s, r) => s + (r.wins||0), 0);
+    const totalLosses = totalTrades - totalWins;
+    const overallWR   = totalTrades > 0 ? (totalWins / totalTrades * 100) : 0;
+    $('s-total-trades').textContent = totalTrades || '—';
+    $('s-total-sub').textContent = `${totalTrades} closed (30d)`;
+    $('s-winrate').textContent = totalTrades > 0 ? `${fmt(overallWR,1)}%` : '—';
+    $('s-winrate').className = `val ${overallWR >= 50 ? 'g' : overallWR >= 40 ? 'y' : 'r2'}`;
+    $('s-winrate-sub').textContent = `W: ${totalWins} / L: ${totalLosses}`;
+
+    // topbar totals (must come after calculation above)
+    $('tb-total').textContent = totalTrades || '—';
+    $('tb-wr').textContent = totalTrades > 0 ? `${fmt(overallWR,1)}%` : '—';
+    $('tb-wr').className = `val ${overallWR>=50?'g':overallWR>=40?'y':'r2'}`;
 
     // ── Heartbeat bar ──
     $('hb-txt').innerHTML = `💓 <span class="hl">${d.state||'—'}</span> · Gear: <span class="hl">${d.loop_mins||5}m</span> · Pos: <span class="hl">${d.open_count||0}</span> · Float: <span class="hl">${fmtSign(floatPl)}</span> · Balance: <span class="hl">${fmtUSD(balance)}</span>`;
