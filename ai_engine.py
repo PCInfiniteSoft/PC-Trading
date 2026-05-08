@@ -61,27 +61,26 @@ STRATEGY_DATA = {s: {"buy": [0,0,0,0,0], "sell": [100,100,100,100,100],
 
 DIRECTOR_PROMPT = """
 You are DIRECTOR, the Macro Strategist of a quantitative trading fund.
-Analyze H4/D1 technical data AND the economic calendar to set the overall
-market bias and direction policy for the next 4-8 hours.
+Analyze H4/D1 technical data AND upcoming economic events.
 
 [Input Data]
 - Asset:             {symbol}
 - H4 Trend:          {h4_trend}
 - D1 Trend:          {d1_trend}
 - H4 ATR% of price:  {atr_pct_h4}%  (>0.8% = elevated volatility)
-- Forex Factory News: {news_data}
+- Upcoming News (not yet passed): {news_data}
 
 [Instructions]
-1. Only set direction NONE if a HIGH-IMPACT news event is within the next 30 minutes.
-   If news already passed (more than 30 min ago), do NOT block — resume normal trading.
-2. Determine trading direction based on H4/D1 trend:
+1. The news list above contains ONLY upcoming events that have NOT passed yet.
+   If news_data is empty or says "No high-impact news", set direction based on trend only.
+2. Only set allowed_direction = NONE if a news event is within the NEXT 30 minutes.
+3. Set direction based on H4/D1 trend:
    - Both UPTREND → BUY_ONLY
-   - Both DOWNTREND → SELL_ONLY
+   - Both DOWNTREND → SELL_ONLY  
    - Mixed or SIDEWAY → BOTH
-   - News imminent (within 30 min) → NONE
-3. Set risk level (1-5). Default is 3. Only lower to 2 if BOTH ATR is high AND news is near.
-   Do NOT set risk below 3 just because news passed hours ago.
-4. After NFP/FOMC passes, resume trading normally with BOTH or trend-based direction.
+   - News within 30 min → NONE
+4. Risk level: default 3. Only lower if ATR > 1.0% AND news is imminent.
+   Never set risk below 3 unless direction is NONE.
 
 Output MUST be strictly valid JSON:
 {{
@@ -529,13 +528,19 @@ def get_today_high_impact_news(symbols):
                             news_dt   = datetime.strptime(time_str, "%I:%M%p")
                             thai_time = news_dt + timedelta(hours=11)
                             t         = thai_time.time()
-                            shared_state.TODAY_NEWS_TIMES.append(t)
 
-                            # [UPGRADE #6] Store per-event windows
+                            # [FIX] Skip news windows that already ended
                             before_m, after_m = get_news_window_minutes(title)
-                            from datetime import time as dtime
                             start_dt = (thai_time - timedelta(minutes=before_m)).time()
                             end_dt   = (thai_time + timedelta(minutes=after_m)).time()
+                            now_time = datetime.now().time()
+
+                            if end_dt < now_time:
+                                logging.getLogger("System").info(
+                                    f"⏩ [News] ข้ามข่าวที่ผ่านไปแล้ว: {title} (จบ {end_dt})")
+                                continue
+
+                            shared_state.TODAY_NEWS_TIMES.append(t)
                             shared_state.NEWS_WINDOWS.append({
                                 "title": title, "time": t,
                                 "start": start_dt, "end": end_dt
