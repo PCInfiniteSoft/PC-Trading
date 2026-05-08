@@ -88,13 +88,26 @@ async def trading_job():
 
     last_macro = getattr(shared_state, 'LAST_MACRO_TIME', None)
 
-    # [UPGRADE #5] Also trigger DIRECTOR refresh on ATR spike
+    # [FIX] Reset NEWS_WINDOWS at start of each new day
+    last_news_date = getattr(shared_state, 'LAST_NEWS_DATE', None)
+    if last_news_date != now.date():
+        shared_state.NEWS_WINDOWS = []
+        shared_state.TODAY_NEWS_TIMES = []
+        shared_state.LAST_NEWS_DATE = now.date()
+        logging.getLogger("System").info("📅 [News] รีเซ็ต news windows สำหรับวันใหม่")
+
+    # [FIX] ATR spike cooldown — don't refresh more than once per 15 min
+    last_atr_refresh = getattr(shared_state, 'LAST_ATR_REFRESH_TIME', datetime.min)
+    atr_cooldown_ok = (now - last_atr_refresh).total_seconds() > 900  # 15 min cooldown
+
+    # [FIX] Check ATR spike only if cooldown passed
     atr_spike_detected = False
-    for s_check in SYMBOLS_CONFIG:
-        macro_d = getattr(shared_state, 'MACRO_DATA', {}).get(s_check, {})
-        if macro_d.get('atr_pct_h4', 0) > ai.ATR_SPIKE_THRESHOLD:
-            atr_spike_detected = True
-            break
+    if atr_cooldown_ok:
+        for s_check in SYMBOLS_CONFIG:
+            macro_d = getattr(shared_state, 'MACRO_DATA', {}).get(s_check, {})
+            if macro_d.get('atr_pct_h4', 0) > ai.ATR_SPIKE_THRESHOLD:
+                atr_spike_detected = True
+                break
 
     needs_macro_refresh = (
         (is_macro_time or last_macro is None or atr_spike_detected)
@@ -103,6 +116,7 @@ async def trading_job():
 
     if needs_macro_refresh:
         if atr_spike_detected:
+            shared_state.LAST_ATR_REFRESH_TIME = now  # [FIX] Record ATR refresh time
             logging.getLogger("System").warning("⚡ [DIRECTOR] ATR spike — triggering early macro refresh")
         else:
             logging.getLogger("System").info("👑 [DIRECTOR] กำลังประเมินทิศทางตลาดและข่าวสาร (Macro Bias)...")
@@ -203,6 +217,17 @@ async def trading_job():
 
         strat = ai.STRATEGY_DATA[s]
 
+        # [FIX] Safety valve — if allowed_direction stuck on NONE > 2 hours, force BOTH
+        macro_data_check = getattr(shared_state, 'MACRO_DATA', {}).get(s, {})
+        none_since = macro_data_check.get("none_since")
+        if none_since and (datetime.now() - none_since).total_seconds() > 7200:
+            logging.getLogger("System").warning(
+                f"⚠️ [DIRECTOR] NONE มานานกว่า 2 ชั่วโมงแล้ว — รีเซ็ตเป็น BOTH อัตโนมัติ ({s})")
+            shared_state.MACRO_DATA[s]["allowed_direction"] = "BOTH"
+            shared_state.MACRO_DATA[s]["bias"] = "SIDEWAY"
+            shared_state.MACRO_DATA[s].pop("none_since", None)
+            shared_state.CURRENT_RISK_LEVEL = 3
+
         if is_ai_update_turn:
             buy_target = strat['buy'][0] if strat.get('buy') else '--'
             logging.getLogger(s).info(f"📊 RSI: {rsi:.2f} | เป้าซื้อ AI: < {buy_target} | ตลาด: {strat['regime']}")
@@ -259,7 +284,8 @@ async def trading_job():
                                 logging.getLogger(s).info(f"🧠 [ANALYST] Score: {ans.get('score')} | Action: {ans.get('decision')} | Reason: {ans.get('reason')}")
 
                                 risk = getattr(shared_state, 'CURRENT_RISK_LEVEL', 3)
-                                t_score = 2 if risk == 5 else 4 if risk == 4 else 8 if risk <= 2 else 6
+                                # [FIX] Recalibrated to ANALYST 12pt system — was 9pt for Risk2 (impossible)
+                                t_score = 4 if risk == 5 else 5 if risk == 4 else 6 if risk == 3 else 7 if risk == 2 else 8
                                 score = round(float(ans.get('score', 0)), 1)
                                 
                                 # ถ้า AI สั่ง BUY หรือ ถ้าคะแนนถึงเกณฑ์ ก็บังคับลั่นไกเลย!
@@ -316,7 +342,8 @@ async def trading_job():
                                 logging.getLogger(s).info(f"🧠 [ANALYST] Score: {ans.get('score')} | Action: {ans.get('decision')} | Reason: {ans.get('reason')}")
                                 
                                 risk = getattr(shared_state, 'CURRENT_RISK_LEVEL', 3)
-                                t_score = 2 if risk == 5 else 4 if risk == 4 else 8 if risk <= 2 else 6
+                                # [FIX] Recalibrated to ANALYST 12pt system
+                                t_score = 4 if risk == 5 else 5 if risk == 4 else 6 if risk == 3 else 7 if risk == 2 else 8
                                 score = round(float(ans.get('score', 0)), 1)
                                 
                                 # ถ้า AI สั่ง SELL หรือ ถ้าคะแนนถึงเกณฑ์ ก็บังคับลั่นไกเลย!

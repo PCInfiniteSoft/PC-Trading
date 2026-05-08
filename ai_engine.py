@@ -72,17 +72,23 @@ market bias and direction policy for the next 4-8 hours.
 - Forex Factory News: {news_data}
 
 [Instructions]
-1. Evaluate High-Impact (Red) USD news. If news is within 30 min (NFP/FOMC)
-   or 20 min (CPI/FOMC Minutes), set direction NONE.
-2. Determine strict trading direction: BUY_ONLY | SELL_ONLY | BOTH | NONE.
-3. Set global risk level (1-5). Lower it if ATR% is elevated or news is near.
+1. Only set direction NONE if a HIGH-IMPACT news event is within the next 30 minutes.
+   If news already passed (more than 30 min ago), do NOT block — resume normal trading.
+2. Determine trading direction based on H4/D1 trend:
+   - Both UPTREND → BUY_ONLY
+   - Both DOWNTREND → SELL_ONLY
+   - Mixed or SIDEWAY → BOTH
+   - News imminent (within 30 min) → NONE
+3. Set risk level (1-5). Default is 3. Only lower to 2 if BOTH ATR is high AND news is near.
+   Do NOT set risk below 3 just because news passed hours ago.
+4. After NFP/FOMC passes, resume trading normally with BOTH or trend-based direction.
 
 Output MUST be strictly valid JSON:
 {{
-  "macro_bias":       "STRONG_BULLISH" | "STRONG_BEARISH" | "SIDEWAY" | "WAIT_FOR_NEWS",
+  "macro_bias":        "STRONG_BULLISH" | "STRONG_BEARISH" | "BULLISH" | "BEARISH" | "SIDEWAY" | "WAIT_FOR_NEWS",
   "allowed_direction": "BUY_ONLY" | "SELL_ONLY" | "BOTH" | "NONE",
   "global_risk_level": 3,
-  "reason": "Short explanation (max 60 chars)"
+  "reason": "Short explanation (max 80 chars)"
 }}
 """
 
@@ -119,9 +125,19 @@ async def ai_macro_analysis(symbol, h4_trend, d1_trend, news_data, atr_pct_h4=0.
             "global_risk":      macro_plan.get("global_risk_level", 3),
             "reason":           macro_plan.get("reason", "—"),
             "atr_pct_h4":       atr_pct_h4,
+            "set_time":         datetime.now(),
         }
-        # Sync risk level from DIRECTOR
-        shared_state.CURRENT_RISK_LEVEL = macro_plan.get("global_risk_level", 3)
+
+        # [FIX] Safety valve — if DIRECTOR sets NONE, track when it was set
+        # After 2 hours of NONE, force reset to BOTH so bot doesn't lock forever
+        if macro_plan.get("allowed_direction") == "NONE":
+            shared_state.MACRO_DATA[symbol]["none_since"] = datetime.now()
+        else:
+            shared_state.MACRO_DATA[symbol].pop("none_since", None)
+
+        # Sync risk level from DIRECTOR — minimum Risk 3 after news passes
+        new_risk = macro_plan.get("global_risk_level", 3)
+        shared_state.CURRENT_RISK_LEVEL = max(new_risk, 3) if macro_plan.get("allowed_direction") != "NONE" else new_risk
 
         logging.getLogger("System").info(
             f"👑 [DIRECTOR] {symbol}: {shared_state.MACRO_DATA[symbol]['bias']} "
@@ -342,11 +358,14 @@ async def ai_analysis(symbol, price, rsi, st_data):
     global AI_IS_ONLINE, AI_ERROR_CODE
 
     risk = getattr(shared_state, 'CURRENT_RISK_LEVEL', 3)
-    # [UPGRADE #2] Raise minimum thresholds so RSI alone can never fire
-    if risk == 5:   trigger_score = 4   # needs trend (+4) OR zone (+4) at minimum
-    elif risk == 4: trigger_score = 6
-    elif risk <= 2: trigger_score = 9
-    else:           trigger_score = 7   # Risk 3 default
+    # [FIX] Recalibrated trigger scores for ANALYST 12pt system
+    # Risk 5 = 4pt (trend OR zone), Risk 4 = 5pt, Risk 3 = 6pt (default)
+    # Risk 2 = 7pt, Risk 1 = 8pt (strict)
+    if risk == 5:   trigger_score = 4
+    elif risk == 4: trigger_score = 5
+    elif risk == 3: trigger_score = 6
+    elif risk == 2: trigger_score = 7
+    else:           trigger_score = 8
 
     # SCOUT pre-filter score (+0/+1/+2)
     order_type = "BUY" if rsi < 50 else "SELL"
