@@ -504,12 +504,20 @@ function renderStratStats(stats){
 
 function renderLogs(logs){
   if(!logs||!logs.length){ $('logs-list').innerHTML='<div class="empty">No logs yet</div>'; return; }
-  $('logs-list').innerHTML = logs.slice(0,60).map(l=>{
-    const lc = badgeClass(l.level||'');
+  $('logs-list').innerHTML = logs.slice(0,80).map(l=>{
+    const msg = l.msg || '';
+    // Detect level from emoji prefix in message (matches GUI style)
+    let lc = 'i';
+    if(msg.includes('❌')||msg.includes('🚨')||l.level==='ERROR')   lc='e';
+    else if(msg.includes('⚠️')||msg.includes('⏳')||msg.includes('🛑')||l.level==='WARNING') lc='w';
+    else if(msg.includes('✅')||msg.includes('💰')||msg.includes('🎯')) lc='s';
+    const lvlLabel = lc==='e'?'ERR':lc==='w'?'WARN':lc==='s'?'OK':'INF';
+    // Highlight bracketed tags like [DIRECTOR] [ANALYST] etc
+    const highlighted = msg.replace(/\[([^\]]+)\]/g, '[<span class="hl">$1</span>]');
     return `<div class="log-e">
       <span class="log-t">${l.time||''}</span>
-      <span class="log-l ${lc}">${l.level==='WARNING'?'WARN':l.level==='ERROR'?'ERR':l.level==='INFO'?'INF':'OK'}</span>
-      <span class="log-m">${(l.msg||'').replace(/\[([^\]]+)\]/g,'[<span class="hl">$1</span>]')}</span>
+      <span class="log-l ${lc}">${lvlLabel}</span>
+      <span class="log-m">${highlighted}</span>
     </div>`;
   }).join('');
 }

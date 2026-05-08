@@ -17,19 +17,30 @@ class DailyFileHandler(logging.FileHandler):
         new_date = datetime.fromtimestamp(record.created).strftime("%Y_%m_%d")
         if self.current_date != new_date:
             self.current_date = new_date
-            self.close() 
+            self.close()
             self.baseFilename = os.path.abspath(f"{self.base_name}_{self.current_date}.txt")
             self.stream = self._open()
         super().emit(record)
+
 
 class GUIHandler(logging.Handler):
     def __init__(self, log_name=""):
         super().__init__()
         self.log_name = f"[{log_name}] " if log_name else ""
+
     def emit(self, record):
         msg = self.format(record)
         display_msg = f"{self.log_name}{msg}"
+        # ── GUI queue (existing) ──
         shared_state.log_queue.put((display_msg, record.levelname))
+        # ── Web dashboard buffer (new) ──
+        try:
+            import web_app
+            time_str = datetime.fromtimestamp(record.created).strftime("%H:%M:%S")
+            level = record.levelname  # INFO / WARNING / ERROR
+            web_app.push_log(time_str, level, display_msg)
+        except Exception:
+            pass  # web_app not loaded yet on startup — safe to ignore
 
 class LogsFormatter(logging.Formatter):
     def format(self, record):
