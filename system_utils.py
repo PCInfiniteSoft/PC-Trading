@@ -113,6 +113,19 @@ def _get_daily_performance(days=30):
     except Exception:
         return []
 
+def _get_news_calendar():
+    """แปลง NEWS_WINDOWS เป็น list ที่ JSON-serializable"""
+    windows = getattr(shared_state, 'NEWS_WINDOWS', [])
+    result = []
+    for w in windows:
+        result.append({
+            "title": w.get("title", ""),
+            "time":  w["time"].strftime("%H:%M") if w.get("time") else "",
+            "start": w["start"].strftime("%H:%M") if w.get("start") else "",
+            "end":   w["end"].strftime("%H:%M") if w.get("end") else "",
+        })
+    return result
+
 def _drain_log_queue(max_entries=50):
     """ดึง logs จาก shared_state.log_queue (non-blocking)"""
     logs = []
@@ -208,6 +221,8 @@ def save_web_status():
         "symbols":          symbols_data,
         # ── Logs ──
         "logs":             _drain_log_queue(50),
+        # ── News Calendar ──
+        "news_calendar":    _get_news_calendar(),
     }
 
     with open("bot_status.json", "w", encoding="utf-8") as f:

@@ -166,6 +166,15 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
 .btn-sl{background:rgba(255,61,87,.1);color:var(--red);border:1px solid rgba(255,61,87,.25)}
 /* empty state */
 .empty{padding:16px 10px;text-align:center;font-size:10px;color:var(--text3);font-family:var(--font-mono)}
+/* economic calendar */
+.cal-row{display:flex;align-items:flex-start;gap:7px;padding:5px 10px;border-bottom:1px solid rgba(30,42,58,.5)}
+.cal-time{font-family:var(--font-mono);font-size:10px;color:var(--accent2);flex-shrink:0;min-width:36px}
+.cal-body{flex:1;min-width:0}
+.cal-title{font-size:10px;color:var(--text);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cal-window{font-size:9px;color:var(--text3);font-family:var(--font-mono)}
+.cal-dot{width:6px;height:6px;border-radius:50%;background:var(--red);flex-shrink:0;margin-top:3px}
+.cal-dot.past{background:var(--text3)}
+.cal-dot.active{background:var(--yellow);animation:pulse 1s infinite}
 </style>
 </head>
 <body>
@@ -226,12 +235,9 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
     <div class="reg-seg reg-bear" id="r-bear">BEAR</div>
     <div class="reg-seg reg-side" id="r-side">SIDE</div>
   </div>
-  <!-- Real Positions -->
-  <div class="sec-title">Real Positions <span class="cnt" id="real-cnt">0</span></div>
-  <div class="pos-list" id="real-pos-list" style="max-height:130px;"></div>
-  <!-- Demo Positions -->
-  <div class="sec-title">Demo Positions <span class="cnt" id="demo-cnt">0</span></div>
-  <div class="pos-list" id="demo-pos-list" style="max-height:130px;"></div>
+  <!-- Economic Calendar -->
+  <div class="sec-title">Economic Calendar <span class="cnt" id="cal-cnt">0</span></div>
+  <div id="cal-list" style="overflow-y:auto;max-height:160px;flex-shrink:0;"></div>
   <!-- Agents -->
   <div class="sec-title" style="margin-top:auto;">Agents</div>
   <div style="overflow-y:auto;">
@@ -433,10 +439,6 @@ document.querySelectorAll('.tab').forEach(t=>{
 //  Render functions
 // ══════════════════════════════════════════════════════
 function renderPositions(positions){
-  const real = positions.filter(p=>!p.comment?.includes('DEMO')&&!p.comment?.includes('PAPER'));
-  const demo = positions;  // all go here for demo
-  $('real-cnt').textContent = `${positions.length}`;
-
   const posTable = $('pos-table');
   $('pos-count').textContent = `${positions.length} open`;
 
@@ -457,18 +459,29 @@ function renderPositions(positions){
       <div style="display:flex;gap:3px;justify-content:flex-end"><button class="btn-tp">TP</button><button class="btn-sl">SL</button></div>
     </div>`;
   }).join('');
+}
 
-  // sidebar pos list
-  $('demo-pos-list').innerHTML = positions.slice(0,12).map(p=>{
-    const isPos = p.profit>=0;
-    const colors=['rgba(255,107,53,.15)','rgba(0,153,255,.15)','rgba(0,212,170,.15)','rgba(168,85,247,.15)','rgba(255,193,7,.15)'];
-    const txtC=['var(--orange)','var(--accent2)','var(--accent)','var(--purple)','var(--yellow)'];
-    const ci = p.symbol.charCodeAt(0)%5;
-    return `<div class="pos-row">
-      <div class="coin-ic" style="background:${colors[ci]};color:${txtC[ci]}">${p.symbol[0]}</div>
-      <div><div class="ps-sym">${p.symbol} <span class="sl ${p.side==='LONG'?'sl-l':'sl-s'}" style="font-size:8px">${p.side==='LONG'?'L':'S'}</span></div>
-        <div class="ps-strat">${(p.strategy||'').substring(0,16)}</div></div>
-      <div class="ps-pnl ${isPos?'g':'r2'}">${isPos?'+':''}${fmt(p.profit_pct||0,1)}%</div>
+function renderCalendar(events){
+  const list = $('cal-list');
+  const cnt  = $('cal-cnt');
+  if(!events||!events.length){
+    cnt.textContent = '0';
+    list.innerHTML = '<div class="empty">No high-impact news today</div>';
+    return;
+  }
+  cnt.textContent = `${events.length}`;
+  const nowStr = new Date().toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit',hour12:false});
+  list.innerHTML = events.map(e=>{
+    const isPast   = e.end  && e.end   < nowStr;
+    const isActive = e.start && e.end  && e.start <= nowStr && nowStr <= e.end;
+    const dotCls = isPast ? 'cal-dot past' : isActive ? 'cal-dot active' : 'cal-dot';
+    return `<div class="cal-row">
+      <div class="${dotCls}"></div>
+      <span class="cal-time">${e.time||'—'}</span>
+      <div class="cal-body">
+        <div class="cal-title">${e.title||'—'}</div>
+        <div class="cal-window">Pause: ${e.start||'—'} – ${e.end||'—'}</div>
+      </div>
     </div>`;
   }).join('');
 }
@@ -673,6 +686,9 @@ async function fetchAndRender(){
 
     // ── Logs ──
     renderLogs(d.logs||[]);
+
+    // ── Economic Calendar ──
+    renderCalendar(d.news_calendar||[]);
 
     // ── Symbols ──
     if(d.symbols) renderSymbols(d.symbols);
