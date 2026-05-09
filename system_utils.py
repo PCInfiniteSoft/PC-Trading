@@ -4,6 +4,7 @@ import shared_state
 import MetaTrader5 as mt5
 import trade_manager as tm
 import ai_engine as ai
+import discord_manager
 from bot_config import SYMBOLS_CONFIG
 from datetime import datetime
 
@@ -223,6 +224,9 @@ def save_web_status():
         "logs":             _drain_log_queue(50),
         # ── News Calendar ──
         "news_calendar":    _get_news_calendar(),
+        # ── Connection status ──
+        "discord_online":   discord_manager.bot.is_ready(),
+        "mt5_online":       mt5.account_info() is not None,
     }
 
     with open("bot_status.json", "w", encoding="utf-8") as f:

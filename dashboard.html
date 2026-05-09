@@ -30,7 +30,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
 .conn-dot{width:6px;height:6px;border-radius:50%;background:var(--red);margin-right:2px;flex-shrink:0}
 .conn-dot.online{background:var(--green)}
 /* LAYOUT */
-.layout{display:grid;grid-template-columns:220px 1fr 255px;height:calc(100vh - 42px)}
+.layout{display:grid;grid-template-columns:220px 1fr 255px;height:calc(100vh - 76px)}
 /* SIDEBAR */
 .sidebar,.rsidebar{background:var(--bg2);display:flex;flex-direction:column;overflow:hidden}
 .sidebar{border-right:1px solid var(--border)}
@@ -166,6 +166,24 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
 .btn-sl{background:rgba(255,61,87,.1);color:var(--red);border:1px solid rgba(255,61,87,.25)}
 /* empty state */
 .empty{padding:16px 10px;text-align:center;font-size:10px;color:var(--text3);font-family:var(--font-mono)}
+/* control bar */
+.ctrl-bar{display:flex;align-items:center;gap:8px;padding:5px 12px;background:var(--bg3);border-bottom:1px solid var(--border);flex-shrink:0}
+.ctrl-btn{border:none;padding:4px 12px;border-radius:3px;font-family:var(--font-mono);font-size:10px;font-weight:700;cursor:pointer;letter-spacing:.04em;transition:opacity .15s}
+.ctrl-btn:hover{opacity:.8}.ctrl-btn:disabled{opacity:.35;cursor:not-allowed}
+.cb-start{background:rgba(0,230,118,.15);color:var(--green);border:1px solid rgba(0,230,118,.3)}
+.cb-stop{background:rgba(255,61,87,.15);color:var(--red);border:1px solid rgba(255,61,87,.3)}
+.cb-pause{background:rgba(255,193,7,.15);color:var(--yellow);border:1px solid rgba(255,193,7,.3)}
+.cb-restart{background:rgba(0,153,255,.15);color:var(--accent2);border:1px solid rgba(0,153,255,.3)}
+.ctrl-sep{width:1px;height:18px;background:var(--border2);flex-shrink:0}
+.risk-btns{display:flex;gap:3px}
+.rb{border:none;width:22px;height:22px;border-radius:3px;font-family:var(--font-mono);font-size:9px;font-weight:700;cursor:pointer;background:var(--bg4);color:var(--text3);border:1px solid var(--border2);transition:all .15s}
+.rb.act{background:rgba(255,193,7,.2);color:var(--yellow);border-color:rgba(255,193,7,.4)}
+.conn-pills{margin-left:auto;display:flex;gap:6px}
+.cpill{display:flex;align-items:center;gap:4px;padding:3px 8px;border-radius:3px;font-size:9px;font-weight:700;font-family:var(--font-mono);border:1px solid;white-space:nowrap}
+.cpill-on{background:rgba(0,230,118,.08);color:var(--green);border-color:rgba(0,230,118,.25)}
+.cpill-off{background:rgba(255,61,87,.08);color:var(--red);border-color:rgba(255,61,87,.25)}
+.cpill-dot{width:5px;height:5px;border-radius:50%;flex-shrink:0}
+.cpill-on .cpill-dot{background:var(--green)}.cpill-off .cpill-dot{background:var(--red);animation:pulse 1.2s infinite}
 /* economic calendar */
 .cal-row{display:flex;align-items:flex-start;gap:7px;padding:5px 10px;border-bottom:1px solid rgba(30,42,58,.5)}
 .cal-time{font-family:var(--font-mono);font-size:10px;color:var(--accent2);flex-shrink:0;min-width:36px}
@@ -202,6 +220,28 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
     <span class="mbadge mdemo" id="mode-demo">DEMO</span>
     <span class="mbadge mpaper" id="mode-paper">PAPER</span>
     <span class="clock" id="clock"></span>
+  </div>
+</div>
+
+<!-- CONTROL BAR -->
+<div class="ctrl-bar">
+  <button class="ctrl-btn cb-start" id="btn-start" onclick="botCtrl('START')">▶ START</button>
+  <button class="ctrl-btn cb-stop"  id="btn-stop"  onclick="botCtrl('STOP')">■ STOP</button>
+  <button class="ctrl-btn cb-pause" id="btn-pause" onclick="botCtrl('PAUSE')">⏸ PAUSE</button>
+  <button class="ctrl-btn cb-restart" id="btn-restart" onclick="botCtrl('RESTART')">↺ RESTART</button>
+  <div class="ctrl-sep"></div>
+  <span style="font-size:9px;color:var(--text3);font-family:var(--font-mono)">RISK</span>
+  <div class="risk-btns" id="risk-btns">
+    <button class="rb" onclick="setRisk(1)">1</button>
+    <button class="rb" onclick="setRisk(2)">2</button>
+    <button class="rb" onclick="setRisk(3)">3</button>
+    <button class="rb" onclick="setRisk(4)">4</button>
+    <button class="rb" onclick="setRisk(5)">5</button>
+  </div>
+  <div class="conn-pills">
+    <div class="cpill cpill-off" id="pill-discord"><div class="cpill-dot"></div>Discord</div>
+    <div class="cpill cpill-off" id="pill-mt5"><div class="cpill-dot"></div>MT5</div>
+    <div class="cpill cpill-off" id="pill-ai"><div class="cpill-dot"></div>AI</div>
   </div>
 </div>
 
@@ -366,6 +406,41 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
 </div><!-- /layout -->
 
 <script>
+// ══════════════════════════════════════════════════════
+//  Bot Control
+// ══════════════════════════════════════════════════════
+async function botCtrl(action){
+  try{
+    const r = await fetch('/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action})});
+    const d = await r.json();
+    if(!d.ok) console.error('Control error:',d.error);
+  } catch(e){ console.error(e); }
+}
+async function setRisk(level){
+  try{
+    await fetch('/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'RISK',level})});
+    document.querySelectorAll('.rb').forEach((b,i)=>b.classList.toggle('act',i+1===level));
+  } catch(e){ console.error(e); }
+}
+function updateCtrlBar(d){
+  const state = (d.state||'').toUpperCase();
+  const running = state==='RUNNING'||state==='WAITING';
+  $('btn-start').disabled   = running;
+  $('btn-stop').disabled    = state==='STOPPED';
+  $('btn-pause').disabled   = !running;
+  $('btn-restart').disabled = false;
+  const riskLevel = d.risk_level||3;
+  document.querySelectorAll('.rb').forEach((b,i)=>b.classList.toggle('act',i+1===riskLevel));
+  // connection pills
+  const setPill = (id, online) => {
+    const el = $(id);
+    el.className = `cpill ${online?'cpill-on':'cpill-off'}`;
+  };
+  setPill('pill-discord', d.discord_online);
+  setPill('pill-mt5',     d.mt5_online);
+  setPill('pill-ai',      d.ai_online !== false);
+}
+
 // ══════════════════════════════════════════════════════
 //  Helpers
 // ══════════════════════════════════════════════════════
@@ -674,6 +749,9 @@ async function fetchAndRender(){
 
     // ── Heartbeat bar ──
     $('hb-txt').innerHTML = `💓 <span class="hl">${d.state||'—'}</span> · Gear: <span class="hl">${d.loop_mins||5}m</span> · Pos: <span class="hl">${d.open_count||0}</span> · Float: <span class="hl">${fmtSign(floatPl)}</span> · Balance: <span class="hl">${fmtUSD(balance)}</span>`;
+
+    // ── Control bar & connections ──
+    updateCtrlBar(d);
 
     // ── Positions ──
     renderPositions(d.open_positions||[]);
