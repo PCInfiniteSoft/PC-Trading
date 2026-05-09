@@ -192,6 +192,8 @@ def save_web_status():
         "is_day_off":       shared_state.IS_DAY_OFF,
         "mt5_disconnects":  getattr(shared_state, 'MT5_DISCONNECT_COUNT', 0),
         "ai_disconnects":   getattr(shared_state, 'AI_DISCONNECT_COUNT', 0),
+        "ai_online":        ai.AI_IS_ONLINE,
+        "ai_error_code":    ai.AI_ERROR_CODE,
         "fast_gear_count":  shared_state.FAST_GEAR_COUNT,
         "cooldown_rem":     getattr(shared_state, 'COOLDOWN_REMAINING', 0),
         # ── Trade data ──

@@ -182,6 +182,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
   <div class="tb-stat"><span class="lbl">Total Trades</span><span class="val b" id="tb-total">—</span></div>
   <div class="tb-stat"><span class="lbl">Win Rate</span><span class="val" id="tb-wr">—</span></div>
   <div class="tb-stat"><span class="lbl">Scan #</span><span class="val a" id="tb-scan">—</span></div>
+  <div class="tb-stat"><span class="lbl">AI Status</span><span class="val" id="tb-ai">—</span></div>
   <div class="regime-wrap">
     <div class="rdot" id="rdot"></div>
     <span class="rlabel" id="tb-regime">—</span>
@@ -682,12 +683,19 @@ async function fetchAndRender(){
       drawEqChart('eqBig', d.equity_history, 80);
     }
 
+    // ── AI status ──
+    const aiOnline = d.ai_online !== false;
+    const aiErrCode = d.ai_error_code || '';
+    $('tb-ai').textContent = aiOnline ? 'Online' : (aiErrCode ? `Err ${aiErrCode}` : 'Offline');
+    $('tb-ai').className = `val ${aiOnline ? 'g' : 'r2'}`;
+
     // ── Agents ──
     const mt5Disc = d.mt5_disconnects||0;
     $('ag0-sub').textContent = d.symbols ? Object.entries(d.symbols).map(([s,v])=>`${s}: ${v.allowed_dir||'N/A'}`).join(' · ') : '—';
     $('ag0-badge').textContent = 'ON'; $('ag0-badge').className='badge bon';
-    $('ag2-sub').textContent = `Score modifier active · MACD+EMA`;
-    $('ag2-badge').textContent = 'ON'; $('ag2-badge').className='badge bon';
+    $('ag2-sub').textContent = aiOnline ? 'Score modifier active · MACD+EMA' : `OpenAI Error ${aiErrCode}`;
+    $('ag2-badge').textContent = aiOnline ? 'ON' : 'ERR';
+    $('ag2-badge').className = `badge ${aiOnline ? 'bon' : 'boff'}`;
     $('mt5-sub').textContent = `Reconnects: ${mt5Disc}`;
     $('mt5-badge').textContent = d.state&&d.state!=='STOPPED'?'ON':'OFF';
     $('mt5-badge').className = `badge ${d.state&&d.state!=='STOPPED'?'bon':'boff'}`;
