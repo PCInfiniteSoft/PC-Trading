@@ -416,11 +416,21 @@ async function botCtrl(action){
     if(!d.ok) console.error('Control error:',d.error);
   } catch(e){ console.error(e); }
 }
+let _riskLockUntil = 0;
+let _riskLocked = 3;
 async function setRisk(level){
   try{
-    await fetch('/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'RISK',level})});
-    document.querySelectorAll('.rb').forEach((b,i)=>b.classList.toggle('act',i+1===level));
-  } catch(e){ console.error(e); }
+    const r = await fetch('/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'RISK',level})});
+    const d = await r.json();
+    if(d.ok){
+      const confirmed = d.risk_level || level;
+      _riskLocked    = confirmed;
+      _riskLockUntil = Date.now() + 30000;
+      document.querySelectorAll('.rb').forEach((b,i)=>b.classList.toggle('act',i+1===confirmed));
+    } else {
+      console.error('Risk change failed:', d.error);
+    }
+  } catch(e){ console.error('setRisk error:',e); }
 }
 function updateCtrlBar(d){
   const state = (d.state||'').toUpperCase();
@@ -429,7 +439,7 @@ function updateCtrlBar(d){
   $('btn-stop').disabled    = state==='STOPPED';
   $('btn-pause').disabled   = !running;
   $('btn-restart').disabled = false;
-  const riskLevel = d.risk_level||3;
+  const riskLevel = (Date.now() < _riskLockUntil) ? _riskLocked : (d.risk_level||3);
   document.querySelectorAll('.rb').forEach((b,i)=>b.classList.toggle('act',i+1===riskLevel));
   // connection pills
   const setPill = (id, online) => {

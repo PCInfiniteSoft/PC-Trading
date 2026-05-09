@@ -5,6 +5,7 @@ PC Trading — Web Dashboard Server
 """
 
 import json
+import logging
 import os
 import sqlite3
 import threading
@@ -13,6 +14,11 @@ from datetime import datetime
 from pathlib import Path
 
 from flask import Flask, jsonify, send_from_directory, abort, request
+
+try:
+    import shared_state as _shared_state
+except ImportError:
+    _shared_state = None
 
 app = Flask(__name__, static_folder=".")
 
@@ -127,40 +133,42 @@ def api_logs():
 
 @app.route("/api/control", methods=["POST"])
 def api_control():
+    ss = _shared_state
+    if ss is None:
+        return jsonify({"ok": False, "error": "shared_state not available (bot not running in same process)"}), 503
     try:
-        import shared_state, logging
         data   = request.get_json(force=True) or {}
         action = data.get("action", "").upper()
         log    = logging.getLogger("System")
 
         if action == "START":
-            if shared_state.BOT_STATE not in ["RUNNING", "WAITING"]:
-                shared_state.BOT_STATE = "WAITING"
+            if ss.BOT_STATE not in ["RUNNING", "WAITING"]:
+                ss.BOT_STATE = "WAITING"
                 log.warning("▶️ [Web] สั่ง Start Bot ผ่าน Dashboard")
         elif action == "STOP":
-            shared_state.BOT_STATE = "STOPPED"
+            ss.BOT_STATE = "STOPPED"
             log.error("🛑 [Web] สั่ง Stop Bot ผ่าน Dashboard")
         elif action == "PAUSE":
-            shared_state.BOT_STATE = "COOLDOWN"
-            shared_state.COOLDOWN_REMAINING = 30
+            ss.BOT_STATE = "COOLDOWN"
+            ss.COOLDOWN_REMAINING = 30
             log.warning("⏸️ [Web] สั่ง Pause Bot ผ่าน Dashboard (Cooldown 30m)")
         elif action == "RESTART":
-            shared_state.BOT_STATE = "STOPPED"
+            ss.BOT_STATE = "STOPPED"
             log.warning("🔄 [Web] สั่ง Restart Bot ผ่าน Dashboard")
-            import threading, time
             def _restart():
                 time.sleep(2)
-                shared_state.BOT_STATE = "WAITING"
+                ss.BOT_STATE = "WAITING"
             threading.Thread(target=_restart, daemon=True).start()
         elif action == "RISK":
-            level = int(data.get("level", shared_state.CURRENT_RISK_LEVEL))
+            level = int(data.get("level", ss.CURRENT_RISK_LEVEL))
             level = max(1, min(5, level))
-            shared_state.CURRENT_RISK_LEVEL = level
+            ss.CURRENT_RISK_LEVEL = level
             log.warning(f"⚠️ [Web] ปรับ Risk Level เป็น {level} ผ่าน Dashboard")
         else:
             return jsonify({"ok": False, "error": f"Unknown action: {action}"}), 400
 
-        return jsonify({"ok": True, "action": action, "state": shared_state.BOT_STATE})
+        return jsonify({"ok": True, "action": action, "state": ss.BOT_STATE,
+                        "risk_level": ss.CURRENT_RISK_LEVEL})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
