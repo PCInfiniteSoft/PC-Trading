@@ -200,8 +200,7 @@ async def trading_job():
         rsi = get_rsi(s) 
         if rsi is None: continue
         
-        if not is_safe_trading_time(s): 
-            ai.AI_IS_ONLINE = False 
+        if not is_safe_trading_time(s):
             continue
             
         is_volatile = check_volatility(s, ai.STRATEGY_DATA[s]["threshold"]) 
