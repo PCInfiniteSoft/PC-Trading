@@ -97,10 +97,6 @@ Output MUST be strictly valid JSON:
 # ══════════════════════════════════════════════════════════════════
 
 async def ai_macro_analysis(symbol, h4_trend, d1_trend, news_data, atr_pct_h4=0.0):
-    """
-    DIRECTOR sets macro bias and allowed direction.
-    Now receives atr_pct_h4 so it can flag elevated volatility in the prompt.
-    """
     prompt = DIRECTOR_PROMPT.format(
         symbol=symbol, h4_trend=h4_trend, d1_trend=d1_trend,
         atr_pct_h4=round(atr_pct_h4, 3), news_data=news_data
@@ -127,14 +123,11 @@ async def ai_macro_analysis(symbol, h4_trend, d1_trend, news_data, atr_pct_h4=0.
             "set_time":         datetime.now(),
         }
 
-        # [FIX] Safety valve — if DIRECTOR sets NONE, track when it was set
-        # After 2 hours of NONE, force reset to BOTH so bot doesn't lock forever
         if macro_plan.get("allowed_direction") == "NONE":
             shared_state.MACRO_DATA[symbol]["none_since"] = datetime.now()
         else:
             shared_state.MACRO_DATA[symbol].pop("none_since", None)
 
-        # Sync risk level from DIRECTOR — minimum Risk 3 after news passes
         new_risk = macro_plan.get("global_risk_level", 3)
         shared_state.CURRENT_RISK_LEVEL = max(new_risk, 3) if macro_plan.get("allowed_direction") != "NONE" else new_risk
 
@@ -151,22 +144,22 @@ async def ai_macro_analysis(symbol, h4_trend, d1_trend, news_data, atr_pct_h4=0.
 
 
 # ══════════════════════════════════════════════════════════════════
-#  STRATEGY UPDATE — pre-computes indicators before AI call
-#  [UPGRADE #1] Stop sending raw prices; send computed indicators
+#  STRATEGY UPDATE — per-symbol parameters
 # ══════════════════════════════════════════════════════════════════
 
 async def ai_update_strategy(symbol, win_loss_stats="N/A"):
-    """
-    Sends pre-computed technical indicators to GPT so it can set
-    RSI buy/sell levels based on actual market context — not raw prices.
-    """
     global AI_IS_ONLINE, AI_ERROR_CODE
 
     if not tm.is_safe_trading_time(symbol):
         logging.getLogger(symbol).info(f"💤 {symbol} ตลาดปิด — หยุดส่ง ANALYST วิเคราะห์ชั่วคราว")
         return True
 
-    # ── [UPGRADE #1] Pre-compute all indicators locally ──
+    # ── ดึง per-symbol config ──────────────────────────────────────
+    sym_cfg = SYMBOLS_CONFIG.get(symbol, {})
+    rsi_buy_buffer  = sym_cfg.get("rsi_buy_buffer", 0.0)
+    rsi_sell_buffer = sym_cfg.get("rsi_sell_buffer", 0.0)
+    min_atr_pct     = sym_cfg.get("min_atr_pct", 0.04)
+
     rates_m5 = mt5.copy_rates_from_pos(symbol, TIMEFRAME, 0, 100)
     if rates_m5 is None or len(rates_m5) < 50:
         return False
@@ -222,6 +215,26 @@ async def ai_update_strategy(symbol, win_loss_stats="N/A"):
     risk_level     = shared_state.CURRENT_RISK_LEVEL
     risk_instr     = RISK_PROFILES.get(risk_level, RISK_PROFILES[3])
 
+    # ── [PER-SYMBOL] BTC-specific prompt hints ────────────────────
+    if "BTC" in symbol:
+        symbol_hints = f"""
+[BTC-Specific Rules]
+- BTC is highly volatile. ATR% is typically 0.06–0.19% per M5 candle (much wider than XAU).
+- RSI swings are wider for BTC. Add {rsi_buy_buffer} pts buffer to buy_levels (lower them by {rsi_buy_buffer}).
+- Add {rsi_sell_buffer} pts buffer to sell_levels (raise them by {rsi_sell_buffer}).
+- In TRENDING_UP regime: buy_levels should allow entry up to RSI ~50 on pullbacks.
+- In RANGING regime: buy_levels around RSI 35-42, sell_levels around RSI 58-65.
+- Min ATR% to trade: {min_atr_pct}% — if ATR% < {min_atr_pct}, widen levels further.
+- Do NOT use tight levels like XAU. BTC requires wider RSI bands.
+"""
+    else:
+        symbol_hints = f"""
+[XAU-Specific Rules]
+- XAU ATR% is typically 0.04–0.08% per M5 candle.
+- RSI cycles are more predictable. Standard levels apply.
+- Min ATR% to trade: {min_atr_pct}%.
+"""
+
     prompt = f"""
 You are the PC Trading strategy engine. Set RSI entry levels for {symbol} based on the indicators below.
 
@@ -239,6 +252,8 @@ You are the PC Trading strategy engine. Set RSI entry levels for {symbol} based 
 
 [Risk Profile]
 {risk_instr}
+
+{symbol_hints}
 
 [Rules]
 1. buy_levels: 5 RSI values (descending) where BUY orders fire (e.g. [32,30,28,26,24])
@@ -280,15 +295,14 @@ Output STRICT valid JSON only:
 
         STRATEGY_DATA[symbol]["buy"]          = sorted(data['buy_levels'],  reverse=True)
         STRATEGY_DATA[symbol]["sell"]         = sorted(data['sell_levels'])
-        STRATEGY_DATA[symbol]["threshold"]    = float(data.get('spike_threshold', 0.5))
+        STRATEGY_DATA[symbol]["threshold"]    = float(data.get('spike_threshold', sym_cfg.get("threshold", 0.25)))
         STRATEGY_DATA[symbol]["tp_activation"]  = float(data.get('tp_activation', 3.0))
         STRATEGY_DATA[symbol]["pullback_pct"]   = float(data.get('pullback_pct', 0.30))
         STRATEGY_DATA[symbol]["be_activation"]  = float(data.get('be_activation', 1.50))
         STRATEGY_DATA[symbol]["be_lock_profit"] = float(data.get('be_lock_profit', 0.20))
-        STRATEGY_DATA[symbol]["max_spread"]     = int(data.get('max_spread', 60))
+        STRATEGY_DATA[symbol]["max_spread"]     = int(data.get('max_spread', sym_cfg.get("max_spread_override", 5000)))
 
-        # ── [FIX 3] Regime stability lock ─────────────────────────────────────
-        # ป้องกัน regime เปลี่ยนทุกรอบ — ต้องเห็น regime เดิม MIN_CONFIRMATIONS รอบติดกัน
+        # ── Regime stability lock ──────────────────────────────────
         new_regime = data['regime']
         stab = shared_state.REGIME_STABILITY.setdefault(symbol, {
             "current": new_regime, "count": 1,
@@ -296,12 +310,10 @@ Output STRICT valid JSON only:
         })
 
         if new_regime == stab["current"]:
-            # regime เดิม ไม่ต้องเปลี่ยน reset pending
             stab["count"] += 1
             stab["pending"] = new_regime
             stab["pending_count"] = 1
         elif new_regime == stab["pending"]:
-            # regime ใหม่ปรากฎซ้ำ นับขึ้น
             stab["pending_count"] += 1
             if stab["pending_count"] >= shared_state.REGIME_MIN_CONFIRMATIONS:
                 old = stab["current"]
@@ -311,13 +323,10 @@ Output STRICT valid JSON only:
                     f"📊 [REGIME] เปลี่ยน {old} → {new_regime} "
                     f"(confirmed {stab['pending_count']}x)")
         else:
-            # regime ใหม่ที่ต่างออกไป เริ่มนับใหม่
             stab["pending"]       = new_regime
             stab["pending_count"] = 1
 
-        # ใช้ regime ที่ stable เท่านั้น
         STRATEGY_DATA[symbol]["regime"] = stab["current"]
-        # ─────────────────────────────────────────────────────────────────────
 
         logging.getLogger(symbol).info(
             f"🔄 [STRATEGY] {symbol} | RSI: {rsi_now} | ATR%: {atr_pct} | "
@@ -336,44 +345,43 @@ Output STRICT valid JSON only:
 
 
 # ══════════════════════════════════════════════════════════════════
-#  ANALYST — ai_analysis  [UPGRADE #2, #7, #8]
-#  Renamed from Agent 2. Scoring upgraded to 0-12pts.
+#  ANALYST — ai_analysis  [FIX: per-symbol score offset]
 # ══════════════════════════════════════════════════════════════════
 
 async def ai_analysis(symbol, price, rsi, st_data):
-    """
-    ANALYST scores the trade setup 0-12 points:
-      H1 Supertrend alignment  — 0 or 4 pts
-      SMC Zone proximity       — 0, 2, or 4 pts  [UPGRADE #8 partial scoring]
-      RSI position             — 0 or 2 pts
-      SCOUT bonus              — 0, 1, or 2 pts  [UPGRADE #7 score modifier]
-
-    [UPGRADE #2] Minimum trigger score enforces at least 2 criteria:
-      Risk 5 → 4 pts (was 2 — RSI alone was enough, now needs trend OR zone)
-      Risk 4 → 6 pts
-      Risk 3 → 7 pts  (default)
-      Risk 1-2 → 9 pts
-    """
     global AI_IS_ONLINE, AI_ERROR_CODE
 
-    risk = getattr(shared_state, 'CURRENT_RISK_LEVEL', 3)
-    # [FIX] Recalibrated trigger scores for ANALYST 12pt system
-    # Risk 5 = 4pt (trend OR zone), Risk 4 = 5pt, Risk 3 = 6pt (default)
-    # Risk 2 = 7pt, Risk 1 = 8pt (strict)
-    if risk == 5:   trigger_score = 4
-    elif risk == 4: trigger_score = 5
-    elif risk == 3: trigger_score = 6
-    elif risk == 2: trigger_score = 7
-    else:           trigger_score = 8
+    # ── ดึง per-symbol score offset ───────────────────────────────
+    sym_cfg = SYMBOLS_CONFIG.get(symbol, {})
+    score_offset = sym_cfg.get("analyst_score_offset", 0)
 
-    # SCOUT pre-filter score (+0/+1/+2)
+    risk = getattr(shared_state, 'CURRENT_RISK_LEVEL', 3)
+    if risk == 5:   base_trigger = 4
+    elif risk == 4: base_trigger = 5
+    elif risk == 3: base_trigger = 6
+    elif risk == 2: base_trigger = 7
+    else:           base_trigger = 8
+
+    # ปรับ trigger score ตาม symbol (BTC ลดลง 1 เพื่อผ่อนปรน)
+    trigger_score = max(4, base_trigger + score_offset)
+
     order_type = "BUY" if rsi < 50 else "SELL"
     scout = adv.get_scout_score(symbol, order_type)
     scout_bonus = scout["score"]
 
-    # Partial zone proximity score
     ob = st_data.get("ob", {"type": "None"})
     zone_score = adv.score_zone_proximity(price, ob, order_type)
+
+    # ── BTC-specific prompt hint ───────────────────────────────────
+    if "BTC" in symbol:
+        btc_hint = (
+            f"\n[BTC Note] BTC is more volatile than XAU. "
+            f"Zone scoring may be lower due to wider price swings. "
+            f"Trigger score is {trigger_score} (1 lower than XAU default). "
+            f"RSI momentum and trend alignment carry more weight for BTC entries."
+        )
+    else:
+        btc_hint = ""
 
     prompt = (
         f"Symbol {symbol} | Price {price} | RSI {rsi:.2f} | Regime {STRATEGY_DATA[symbol]['regime']}\n"
@@ -383,6 +391,7 @@ async def ai_analysis(symbol, price, rsi, st_data):
         f"  SMC Zone:       {st_data['ob_zone']}\n"
         f"  Chandelier:     Long stop {st_data['long_stop']} | Short stop {st_data['short_stop']}\n"
         f"  SCOUT pre-filter: {scout['reason']}\n"
+        f"{btc_hint}\n"
         f"\n"
         f"[ANALYST SCORING SYSTEM — Max 12 points]\n"
         f"BUY criteria:\n"
@@ -420,7 +429,6 @@ async def ai_analysis(symbol, price, rsi, st_data):
         AI_ERROR_CODE = ""
         result = json.loads(response.choices[0].message.content)
 
-        # Log ANALYST decision with full breakdown
         logging.getLogger(symbol).info(
             f"🎯 [ANALYST] Score: {result.get('score')}/12 | "
             f"SCOUT: +{scout_bonus} | Zone: +{zone_score} | "
@@ -457,25 +465,20 @@ async def ai_check_cooldown(symbol, prices, volumes):
 
 
 # ══════════════════════════════════════════════════════════════════
-#  News fetcher  [UPGRADE #6] Wider windows for high-impact events
+#  News fetcher
 # ══════════════════════════════════════════════════════════════════
 
-# News events that need extra-wide trading pause windows
-HIGH_IMPACT_WIDE = ["nonfarm", "nfp", "fomc", "fed rate", "interest rate decision"]
+HIGH_IMPACT_WIDE   = ["nonfarm", "nfp", "fomc", "fed rate", "interest rate decision"]
 HIGH_IMPACT_MEDIUM = ["cpi", "ppi", "gdp", "unemployment", "retail sales", "pce"]
 
 def get_news_window_minutes(title: str) -> tuple[int, int]:
-    """
-    Returns (before_mins, after_mins) trading pause window for a given news title.
-    [UPGRADE #6] Different windows for different event types.
-    """
     title_lower = title.lower()
     if any(k in title_lower for k in HIGH_IMPACT_WIDE):
-        return (30, 30)   # NFP / FOMC — ±30 min
+        return (30, 30)
     elif any(k in title_lower for k in HIGH_IMPACT_MEDIUM):
-        return (20, 20)   # CPI / GDP — ±20 min
+        return (20, 20)
     else:
-        return (5, 15)    # Standard red-folder — original window
+        return (5, 15)
 
 
 def get_today_high_impact_news(symbols):
@@ -507,7 +510,7 @@ def get_today_high_impact_news(symbols):
 
         news_list = []
         shared_state.TODAY_NEWS_TIMES  = []
-        shared_state.NEWS_WINDOWS      = []   # list of (start, end) time objects
+        shared_state.NEWS_WINDOWS      = []
 
         for event in tree.findall('event'):
             date     = event.find('date').text
@@ -529,7 +532,6 @@ def get_today_high_impact_news(symbols):
                             thai_time = news_dt + timedelta(hours=11)
                             t         = thai_time.time()
 
-                            # [FIX] Skip news windows that already ended
                             before_m, after_m = get_news_window_minutes(title)
                             start_dt = (thai_time - timedelta(minutes=before_m)).time()
                             end_dt   = (thai_time + timedelta(minutes=after_m)).time()

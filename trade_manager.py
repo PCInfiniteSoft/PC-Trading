@@ -21,17 +21,9 @@ agent3 = RiskManager(db_path="trading_history.db")
 import asyncio as _asyncio
 
 async def ensure_mt5_connected(retries: int = 3, delay: float = 5.0) -> bool:
-    """
-    ตรวจสอบว่า MT5 ยังเชื่อมต่ออยู่หรือไม่
-    ถ้าหลุด → พยายาม reconnect สูงสุด `retries` ครั้ง ห่างกัน `delay` วินาที
-    คืนค่า True ถ้าเชื่อมต่อสำเร็จ, False ถ้าล้มเหลวทุกครั้ง
-    """
     log = logging.getLogger("System")
-
-    # เช็คเร็วก่อน — ถ้า terminal ตอบสนองอยู่ไม่ต้องทำอะไร
     if mt5.terminal_info() is not None:
         return True
-
     for attempt in range(1, retries + 1):
         log.warning(f"🔌 [SENTINEL] MT5 ไม่ตอบสนอง — พยายาม reconnect ครั้งที่ {attempt}/{retries}...")
         if mt5.initialize(login=ACCOUNT_ID, password=PWD, server=SRV):
@@ -40,7 +32,6 @@ async def ensure_mt5_connected(retries: int = 3, delay: float = 5.0) -> bool:
             return True
         if attempt < retries:
             await _asyncio.sleep(delay)
-
     shared_state.MT5_DISCONNECT_COUNT = getattr(shared_state, 'MT5_DISCONNECT_COUNT', 0) + 1
     shared_state.IS_MT5_DOWN = True
     log.error(f"🚨 [SENTINEL] MT5 reconnect ล้มเหลวทุกครั้ง! ({retries} attempts)")
@@ -88,7 +79,6 @@ async def trading_job():
 
     last_macro = getattr(shared_state, 'LAST_MACRO_TIME', None)
 
-    # [FIX] Reset NEWS_WINDOWS at start of each new day
     last_news_date = getattr(shared_state, 'LAST_NEWS_DATE', None)
     if last_news_date != now.date():
         shared_state.NEWS_WINDOWS = []
@@ -96,11 +86,9 @@ async def trading_job():
         shared_state.LAST_NEWS_DATE = now.date()
         logging.getLogger("System").info("📅 [News] รีเซ็ต news windows สำหรับวันใหม่")
 
-    # [FIX] ATR spike cooldown — don't refresh more than once per 15 min
     last_atr_refresh = getattr(shared_state, 'LAST_ATR_REFRESH_TIME', datetime.min)
-    atr_cooldown_ok = (now - last_atr_refresh).total_seconds() > 900  # 15 min cooldown
+    atr_cooldown_ok = (now - last_atr_refresh).total_seconds() > 900
 
-    # [FIX] Check ATR spike only if cooldown passed
     atr_spike_detected = False
     if atr_cooldown_ok:
         for s_check in SYMBOLS_CONFIG:
@@ -116,7 +104,7 @@ async def trading_job():
 
     if needs_macro_refresh:
         if atr_spike_detected:
-            shared_state.LAST_ATR_REFRESH_TIME = now  # [FIX] Record ATR refresh time
+            shared_state.LAST_ATR_REFRESH_TIME = now
             logging.getLogger("System").warning("⚡ [DIRECTOR] ATR spike — triggering early macro refresh")
         else:
             logging.getLogger("System").info("👑 [DIRECTOR] กำลังประเมินทิศทางตลาดและข่าวสาร (Macro Bias)...")
@@ -129,7 +117,6 @@ async def trading_job():
             logging.getLogger("System").warning(f"⚠️ ดึงข่าวไม่สำเร็จ: {e}")
             today_news = "No news data available"
 
-        # 🟢 DIRECTOR วิเคราะห์ทีละ Symbol พร้อม ATR% [UPGRADE #5]
         for macro_symbol in SYMBOLS_CONFIG:
             if not is_safe_trading_time(macro_symbol):
                 logging.getLogger("System").info(
@@ -139,13 +126,11 @@ async def trading_job():
             h4_trend_status  = macro_trends["h4_trend"]
             d1_trend_status  = macro_trends["d1_trend"]
             atr_pct_h4       = macro_trends.get("atr_pct_h4", 0.0)
-            # Pass ATR% so DIRECTOR can flag elevated volatility
             await ai.ai_macro_analysis(macro_symbol, h4_trend_status, d1_trend_status,
                                        today_news, atr_pct_h4=atr_pct_h4)
         
         shared_state.LAST_MACRO_TIME = now
     
-    # [UPGRADE #6] Use per-event news windows (wider for NFP/FOMC)
     is_news_window = False
     news_windows = getattr(shared_state, 'NEWS_WINDOWS', [])
     if news_windows:
@@ -154,7 +139,6 @@ async def trading_job():
                 is_news_window = True
                 break
     else:
-        # fallback to old fixed window if NEWS_WINDOWS not populated yet
         for nt in getattr(shared_state, 'TODAY_NEWS_TIMES', []):
             news_dt      = datetime.combine(now.date(), nt)
             start_window = (news_dt - timedelta(minutes=5)).time()
@@ -162,6 +146,7 @@ async def trading_job():
             if start_window <= now_time <= end_window:
                 is_news_window = True
                 break
+
     if is_news_window and shared_state.CURRENT_LOOP_MINS != 1:
         shared_state.CURRENT_LOOP_MINS = 1
         logging.getLogger("System").warning("🚨 [HYPER-ACTIVE MODE] เข้าสู่ช่วงข่าวกล่องแดง! AI สแกนทุก 1 นาที")
@@ -175,22 +160,17 @@ async def trading_job():
     if shared_state.CURRENT_LOOP_MINS == 1:
         is_ai_update_turn = True
     else:
-        # ถ้าผ่านไป 4.5 นาที ให้ถือว่าถึงรอบอัปเดตแผน
-        is_ai_update_turn = (time_since_update >= 4.5) 
+        is_ai_update_turn = (time_since_update >= 4.5)
 
-    # 2. ตรวจสอบสถานะ AI และระบบ Retry[cite: 2]
     if is_ai_update_turn and not ai.AI_IS_ONLINE:
         shared_state.AI_RETRY_COUNT = getattr(shared_state, 'AI_RETRY_COUNT', 0) + 1
         logging.getLogger("System").warning(f"⚠️ พยายามปลุก AI ให้ตื่น (รอบที่ {shared_state.AI_RETRY_COUNT}/5)...")
-        # ❌ ไม่บันทึกเวลาตรงนี้ เพื่อให้รอบถัดไป (นาทีที่ 1) ยังเป็น is_ai_update_turn=True อยู่ และ Retry ต่อได้ทันที[cite: 2]
         
     elif ai.AI_IS_ONLINE:
         shared_state.AI_RETRY_COUNT = 0 
-        # ✅ บันทึกเวลาเมื่อ AI ออนไลน์และถึงรอบอัปเดตเท่านั้น[cite: 2]
         if is_ai_update_turn:
             shared_state.LAST_AI_UPDATE_TIME = now 
 
-    # 3. ระบบจำศีลเมื่อ AI หายสาบสูญ[cite: 2]
     if getattr(shared_state, 'AI_RETRY_COUNT', 0) >= 5:
         shared_state.BOT_STATE = "COOLDOWN"
         shared_state.COOLDOWN_REMAINING = 30
@@ -220,7 +200,7 @@ async def trading_job():
 
         strat = ai.STRATEGY_DATA[s]
 
-        # [FIX] Safety valve — if allowed_direction stuck on NONE > 2 hours, force BOTH
+        # Safety valve — NONE > 2 hours → force BOTH
         macro_data_check = getattr(shared_state, 'MACRO_DATA', {}).get(s, {})
         none_since = macro_data_check.get("none_since")
         if none_since and (datetime.now() - none_since).total_seconds() > 7200:
@@ -255,47 +235,50 @@ async def trading_job():
                     has_sell = True
                     sell_tickets.append(p.ticket)
 
-        # 🎯 2. ลูปยิงออเดอร์ (รองรับทั้ง 2 ฝั่ง)
         for i in range(5):
             
             # ==========================================
-            # 📉 ฝั่งขาลง: RSI ลงมาโซน Oversold (หาจังหวะ BUY หรือ ปิด SELL)
+            # 📉 BUY block
             # ==========================================
             if rsi < strat['buy'][i]:
-                # ก. ปิดทำกำไรไม้ SELL ที่ถืออยู่ (เพราะกราฟลงมาถึงเป้าแล้ว)
                 if has_sell:
                     for t in sell_tickets:
                         close_one_order(symbol=s, reason="RSI Hit Buy Target (TP) 🎯", ticket=t)
-                    has_sell = False # ปิดเสร็จอัปเดตสถานะพอร์ต
+                    has_sell = False
                     
                 if not shared_state.TRADE_LAYERS.get(s, {}).get("buy", [False]*5)[i]:
                     
-                    # 👑 [ด่านตรวจ DIRECTOR] ดึงนโยบายเฉพาะคู่เงินนี้มาเช็ค
                     macro_data = getattr(shared_state, 'MACRO_DATA', {}).get(s, {})
                     allowed_dir = macro_data.get('allowed_direction', 'BOTH')
                     
-                    # 🛡️ อนุญาตให้ยิง BUY ได้ ก็ต่อเมื่อ DIRECTOR สั่งเป็น BUY_ONLY หรือ BOTH เท่านั้น
                     if allowed_dir in ["BUY_ONLY", "BOTH"]:
-                        # [FIX] SCOUT ต้องรู้ว่ากำลังจะ BUY — ส่ง "BUY" ตรงๆ
                         scout = adv.get_scout_score(s, "BUY")
                         logging.getLogger(s).info(f"🔭 [SCOUT] BUY pre-check — {scout['reason']}")
                         if ai.AI_IS_ONLINE:
                             tick = mt5.symbol_info_tick(s)
                             if tick is not None:
                                 st_data = adv.get_3_indicators(s) 
-                                ans = await ai.ai_analysis(s, tick.ask, rsi, st_data) # ขา Buy ใช้ tick.ask
+                                ans = await ai.ai_analysis(s, tick.ask, rsi, st_data)
                                 logging.getLogger(s).info(f"🧠 [ANALYST] Score: {ans.get('score')} | Action: {ans.get('decision')} | Reason: {ans.get('reason')}")
 
                                 risk = getattr(shared_state, 'CURRENT_RISK_LEVEL', 3)
-                                # [FIX] Recalibrated to ANALYST 12pt system — was 9pt for Risk2 (impossible)
                                 t_score = 4 if risk == 5 else 5 if risk == 4 else 6 if risk == 3 else 7 if risk == 2 else 8
+
+                                # ── ดึง per-symbol score offset ──────────────────────
+                                sym_cfg = SYMBOLS_CONFIG.get(s, {})
+                                t_score = max(4, t_score + sym_cfg.get("analyst_score_offset", 0))
+
                                 score = round(float(ans.get('score', 0)), 1)
                                 
-                                # ถ้า AI สั่ง BUY หรือ ถ้าคะแนนถึงเกณฑ์ ก็บังคับลั่นไกเลย!
-                                if ans.get('decision') == "BUY" or score >= t_score:
+                                # ══════════════════════════════════════════════════════
+                                # [BUG FIX] ANALYST Decision check
+                                # เดิม: if decision=="BUY" or score>=t_score
+                                # ปัญหา: ANALYST return "SELL" แต่ยิง BUY ไป
+                                # แก้: ถ้า ANALYST บอก "SELL" ชัดเจน → ห้ามยิง BUY ไม่ว่า score จะสูงแค่ไหน
+                                # ══════════════════════════════════════════════════════
+                                if ans.get('decision') == "BUY" or (ans.get('decision') != "SELL" and score >= t_score):
                                     log = logging.getLogger(s)
                                     
-                                    # 🛡️ [GUARDIAN] เช็คความปลอดภัย
                                     if agent3.is_cooldown_active(cooldown_minutes=5): 
                                         log.warning("⏳ [GUARDIAN] บล็อก! ติด Cooldown (after SL)"); continue
                                     if agent3.is_against_trend(s, "BUY"): 
@@ -307,7 +290,6 @@ async def trading_job():
 
                                     log.info(f"🎯 [Python] ผ่านด่าน Agent 3 แล้ว! กำลังส่งคำสั่ง BUY → MT5 (SENTINEL OK)...")
                                     
-                                    # ส่งคำสั่งให้ MT5
                                     if place_order(s, "BUY", tick.ask, rsi, f"L{i+1}:Score={score}"): 
                                         async with shared_state.trade_layers_lock:
                                             shared_state.TRADE_LAYERS.setdefault(s, {"buy":[False]*5, "sell":[False]*5})["buy"][i] = True
@@ -316,45 +298,48 @@ async def trading_job():
                                         log.error(f"❌ [MT5] ยิงคำสั่ง BUY ไม่เข้า! (MT5 ปฏิเสธการเข้าออเดอร์)")
 
             # ==========================================
-            # 📈 ฝั่งขาขึ้น: RSI พุ่งขึ้นโซน Overbought (หาจังหวะ SELL หรือ ปิด BUY)
+            # 📈 SELL block
             # ==========================================
             if rsi > strat['sell'][i]:
-                # ก. ปิดทำกำไรไม้ BUY ที่ถืออยู่ (เพราะกราฟพุ่งขึ้นมาชนเป้าแล้ว)
                 if has_buy:
                     for t in buy_tickets:
                         close_one_order(symbol=s, reason="RSI Hit Sell Target (TP) 🎯", ticket=t)
-                    has_buy = False # ปิดเสร็จอัปเดตสถานะพอร์ต
+                    has_buy = False
 
-                # ข. เปิดไม้ SELL สวนลงมา (ส่งให้ AI ยืนยัน)
                 if not shared_state.TRADE_LAYERS.get(s, {}).get("sell", [False]*5)[i]:
                     
-                    # 👑 [ด่านตรวจ DIRECTOR] ดึงนโยบายเฉพาะคู่เงินนี้มาเช็ค
                     macro_data = getattr(shared_state, 'MACRO_DATA', {}).get(s, {})
                     allowed_dir = macro_data.get('allowed_direction', 'BOTH')
                     
-                    # 🛡️ อนุญาตให้ยิง SELL ได้ ก็ต่อเมื่อ DIRECTOR สั่งเป็น SELL_ONLY หรือ BOTH เท่านั้น
                     if allowed_dir in ["SELL_ONLY", "BOTH"]:
-                        # [FIX] SCOUT ต้องรู้ว่ากำลังจะ SELL — ส่ง "SELL" ตรงๆ
                         scout = adv.get_scout_score(s, "SELL")
                         logging.getLogger(s).info(f"🔭 [SCOUT] SELL pre-check — {scout['reason']}")
                         if ai.AI_IS_ONLINE:
                             tick = mt5.symbol_info_tick(s)
                             if tick is not None:
                                 st_data = adv.get_3_indicators(s) 
-                                ans = await ai.ai_analysis(s, tick.bid, rsi, st_data) # ขา Sell ต้องใช้ tick.bid
+                                ans = await ai.ai_analysis(s, tick.bid, rsi, st_data)
                                 logging.getLogger(s).info(f"🧠 [ANALYST] Score: {ans.get('score')} | Action: {ans.get('decision')} | Reason: {ans.get('reason')}")
                                 
                                 risk = getattr(shared_state, 'CURRENT_RISK_LEVEL', 3)
-                                # [FIX] Recalibrated to ANALYST 12pt system
                                 t_score = 4 if risk == 5 else 5 if risk == 4 else 6 if risk == 3 else 7 if risk == 2 else 8
+
+                                # ── ดึง per-symbol score offset ──────────────────────
+                                sym_cfg = SYMBOLS_CONFIG.get(s, {})
+                                t_score = max(4, t_score + sym_cfg.get("analyst_score_offset", 0))
+
                                 score = round(float(ans.get('score', 0)), 1)
                                 
-                                # ถ้า AI สั่ง SELL หรือ ถ้าคะแนนถึงเกณฑ์ ก็บังคับลั่นไกเลย!
-                                if ans.get('decision') == "SELL" or score >= t_score:
+                                # ══════════════════════════════════════════════════════
+                                # [BUG FIX] ANALYST Decision check
+                                # เดิม: if decision=="SELL" or score>=t_score
+                                # ปัญหา: ANALYST return "BUY" แต่ยิง SELL ไป
+                                # แก้: ถ้า ANALYST บอก "BUY" ชัดเจน → ห้ามยิง SELL ไม่ว่า score จะสูงแค่ไหน
+                                # ══════════════════════════════════════════════════════
+                                if ans.get('decision') == "SELL" or (ans.get('decision') != "BUY" and score >= t_score):
 
                                     log = logging.getLogger(s)
                                     
-                                    # 🛡️ [GUARDIAN] เช็คความปลอดภัย
                                     if agent3.is_cooldown_active(cooldown_minutes=5): 
                                         log.warning("⏳ [GUARDIAN] บล็อก! ติด Cooldown (after SL)"); continue
                                     if agent3.is_against_trend(s, "SELL"): 
@@ -366,7 +351,6 @@ async def trading_job():
 
                                     log.info(f"🎯 [Python] ผ่านด่าน Agent 3 แล้ว! กำลังส่งคำสั่ง SELL → MT5 (SENTINEL OK)...")
                                     
-                                    # ส่งคำสั่งให้ MT5
                                     if place_order(s, "SELL", tick.bid, rsi, f"L{i+1}:Score={score}"): 
                                         async with shared_state.trade_layers_lock:
                                             shared_state.TRADE_LAYERS.setdefault(s, {"buy":[False]*5, "sell":[False]*5})["sell"][i] = True
@@ -387,60 +371,48 @@ async def trading_job():
                 
             current_p = pos.profit + pos.swap
                 
-            # 1.1 อัปเดตจุดสูงสุด/ต่ำสุดที่เคยทำได้
             if current_p > shared_state.ACTIVE_TRADE_TRACKER[ticket]["max_p"]:
                 shared_state.ACTIVE_TRADE_TRACKER[ticket]["max_p"] = current_p
                 
             if current_p < shared_state.ACTIVE_TRADE_TRACKER[ticket]["max_l"]:
                 shared_state.ACTIVE_TRADE_TRACKER[ticket]["max_l"] = current_p
 
-            # ==========================================
-            # 🏃‍♂️💨 1.2 ระบบ Trailing & Break-Even (อัปเกรดเป็น Server-Side SL)
-            # ==========================================
             max_profit = shared_state.ACTIVE_TRADE_TRACKER[ticket]["max_p"]
             strat = ai.STRATEGY_DATA.get(symbol, {})
             
-            # ค่าควบคุมจาก AI
             TP_ACTIVATION = strat.get("tp_activation", 3.0)     
             PULLBACK_PCT = strat.get("pullback_pct", 0.30)      
             BE_ACTIVATION = strat.get("be_activation", 1.50)    
             BE_LOCK_PROFIT = strat.get("be_lock_profit", 0.20)  
 
-            # เตรียมข้อมูลราคาเพื่อคำนวณจุด SL ใหม่
             symbol_info = mt5.symbol_info(symbol)
-            # คำนวณว่ากำไร 1 USD เท่ากับราคาวิ่งกี่จุด (Points)
             point_value_per_lot = symbol_info.trade_tick_value / symbol_info.trade_tick_size
             
             new_sl_price = 0.0
 
-            # 🛡️ 1. เช็ค Trailing Profit (กำไรทะลุเป้าใหญ่)
             if max_profit >= TP_ACTIVATION:
                 locked_profit_usd = max_profit * (1.0 - PULLBACK_PCT)
                 price_dist = locked_profit_usd / (pos.volume * point_value_per_lot)
                 
                 if pos.type == mt5.ORDER_TYPE_BUY:
                     new_sl_price = pos.price_open + price_dist
-                else: # SELL
+                else:
                     new_sl_price = pos.price_open - price_dist
                     
                 reason = "Trailing Profit 🏃‍♂️💨"
 
-            # 🛡️ 2. เช็ค Break-Even (กำไรถึงเป้าแรกแต่ยังไม่ถึงเป้าใหญ่)
             elif max_profit >= BE_ACTIVATION:
                 price_dist = BE_LOCK_PROFIT / (pos.volume * point_value_per_lot)
                 
                 if pos.type == mt5.ORDER_TYPE_BUY:
                     new_sl_price = pos.price_open + price_dist
-                else: # SELL
+                else:
                     new_sl_price = pos.price_open - price_dist
                     
                 reason = "Break-Even 🛡️"
 
-            # 🚀 สั่งขยับ SL ไปที่เซิร์ฟเวอร์ทันที (ถ้าราคา SL ใหม่ ดีกว่าของเดิม)
             if new_sl_price > 0:
                 new_sl_price = round(new_sl_price, symbol_info.digits)
-                
-                # เช็คเพื่อให้แน่ใจว่าเราขยับ SL ตามราคาไปข้างหน้าอย่างเดียว (ไม่เลื่อนถอยหลังหาจุดขาดทุน)
                 is_better = (new_sl_price > pos.sl) if pos.type == mt5.ORDER_TYPE_BUY else (new_sl_price < pos.sl or pos.sl == 0)
                 
                 if is_better:
@@ -448,7 +420,7 @@ async def trading_job():
                         logging.getLogger(symbol).info(f"✅ [ANALYST] ขยับ SL ล็อกกำไร ({reason}) -> {new_sl_price}")
 
     # ==========================================
-    # 🟢 2. ระบบตามเก็บตกไม้ที่ถูกโบรคเกอร์ปิด (ชน SL/TP)
+    # 🟢 ตามเก็บตกไม้ที่ถูกโบรคเกอร์ปิด
     # ==========================================
     closed_tickets = []
     for ticket in list(shared_state.ACTIVE_TRADE_TRACKER.keys()):
@@ -515,7 +487,6 @@ async def trading_job():
 
 @trading_job.before_loop
 async def before_trading_job():
-    """ 🟢 ฟังก์ชันนี้จะทำงานแค่ครั้งเดียวตอนกด Start เพื่อหน่วงเวลาให้ตรงกับวินาทีที่ 00 """
     import asyncio
     from datetime import datetime
     import logging
@@ -557,28 +528,21 @@ def place_order(symbol, type, price, rsi, comment):
     raw_comment = str(comment).replace('\n', ' ').replace('\r', '').strip()
     safe_comment = raw_comment[:25]
 
-    # 🟢 [ระบบใหม่] คำนวณ SL / TP แบบ Dynamic (% จากราคาปัจจุบัน)
-    # ป้องกันการตั้ง SL แคบเกินไปจนโดน Spread / ข่าว สะบัดกินฟรี
     risk_level = getattr(shared_state, 'CURRENT_RISK_LEVEL', 3)
-    
-    # ฐานความกว้าง = 0.1% ของราคา (เช่น ทอง 4500 = ห่าง 4.5$, BTC 75000 = ห่าง 75$)
     base_pct = 0.001 
-    
-    # ยืดหยุ่นตาม Risk (Risk 1-2 ทนลากได้เยอะ SL กว้าง / Risk 4-5 เจ็บสั้น SL แคบลง)
     sl_pct = base_pct * (1.0 + (3 - risk_level) * 0.2) 
-    tp_pct = sl_pct * 1.5 # ตั้ง TP ให้กว้างกว่า SL 1.5 เท่า (Risk:Reward = 1:1.5)
-    
+    tp_pct = sl_pct * 1.5
+
     sl_dist = price * sl_pct
     tp_dist = price * tp_pct
 
     if type == "BUY":
         sl_price = price - sl_dist
         tp_price = price + tp_dist
-    else: # SELL
+    else:
         sl_price = price + sl_dist
         tp_price = price - tp_dist
 
-    # ปรับทศนิยมให้ถูกต้องตามมาตรฐานของโบรคเกอร์
     symbol_info = mt5.symbol_info(symbol)
     if symbol_info is None: return False
     sl_price = round(sl_price, symbol_info.digits)
@@ -603,18 +567,13 @@ def place_order(symbol, type, price, rsi, comment):
     
     if res is None:
         err = mt5.last_error()
-        import logging
         logging.getLogger(symbol).error(f"❌ กระสุนด้าน! ส่งคำสั่งไม่ผ่าน Error Code: {err}")
         return False
 
-    # 🔴 MT5 ปฏิเสธคำสั่ง (เช่น เงินไม่พอ, สเปรดถ่าง, ฯลฯ)
     if res.retcode != mt5.TRADE_RETCODE_DONE:
-        import logging
         logging.getLogger(symbol).error(f"❌ MT5 ปฏิเสธคำสั่ง! สาเหตุ: {res.comment} (Code: {res.retcode})")
         return False
 
-    # 🟢 ยิงสำเร็จ! — บันทึก DB + อัปเดต tracker ทั้งหมดในบล็อกเดียว
-    import logging
     slippage = abs(res.price - price) / mt5.symbol_info(symbol).point
     logging.getLogger(symbol).info(f"✅ {type} {symbol} {lot} lots at {res.price} (RSI: {rsi:.2f}) | {comment} | Slip: {slippage:.1f}pts")
 
@@ -635,7 +594,6 @@ def place_order(symbol, type, price, rsi, comment):
     return True
 
 def modify_position_sltp(ticket, symbol, new_sl, new_tp):
-
     request = {
         "action": mt5.TRADE_ACTION_SLTP, 
         "symbol": symbol,
@@ -643,17 +601,14 @@ def modify_position_sltp(ticket, symbol, new_sl, new_tp):
         "sl": new_sl,                    
         "tp": new_tp                     
     }
-
     result = mt5.order_send(request)
-    
     if result.retcode != mt5.TRADE_RETCODE_DONE:
         print(f"⚠️ [Error] แก้ไข SL/TP ไม่สำเร็จ (Ticket {ticket}): {result.comment}")
         return False
-        
     print(f"🛡️ [Sniper] ล็อกกำไรสำเร็จ! ขยับ SL ไปที่ {new_sl} เรียบร้อย (Ticket {ticket})")
     return True
 
-def close_one_order(symbol, reason="AI Action",ticket=None, max_float_p=0.0, max_float_l=0.0): 
+def close_one_order(symbol, reason="AI Action", ticket=None, max_float_p=0.0, max_float_l=0.0): 
     positions = mt5.positions_get(symbol=symbol)
     if not positions: return False
     pos = next((p for p in positions if p.ticket == ticket), None)
@@ -682,7 +637,6 @@ def close_one_order(symbol, reason="AI Action",ticket=None, max_float_p=0.0, max
     }
     
     res = mt5.order_send(request)
-    
     if res is None: return False
         
     if res.retcode == mt5.TRADE_RETCODE_DONE:
@@ -690,25 +644,20 @@ def close_one_order(symbol, reason="AI Action",ticket=None, max_float_p=0.0, max
         send_trade_notification(symbol, "CLOSE", res.price, 0, pos.ticket)
         
         tracker = shared_state.ACTIVE_TRADE_TRACKER.get(pos.ticket, {"max_p": 0.0, "max_l": 0.0})
-
         acc = mt5.account_info()
         curr_bal = acc.balance if acc else 0.0
         dbm.log_trade_exit(
             ticket=pos.ticket, exit_price=res.price, net_profit=current_profit, 
-            max_float_p=tracker["max_p"], max_float_l=tracker["max_l"], # 🟢 2. ดึงค่าจาก tracker มาใส่ตรงนี้
+            max_float_p=tracker["max_p"], max_float_l=tracker["max_l"],
             exit_reason=reason, balance_after=curr_bal
         )
-
         if pos.ticket in shared_state.ACTIVE_TRADE_TRACKER:
             del shared_state.ACTIVE_TRADE_TRACKER[pos.ticket]
-            
         return True
         
     return False
 
 def check_daily_drawdown():
-    """ 📊 ฟังก์ชันเช็คยอดเงินและคำนวณ % ขาดทุนรายวัน """
-
     current_day = datetime.now().day
     if getattr(shared_state, 'CURRENT_DAY', None) != current_day:
         shared_state.CURRENT_DAY = current_day
@@ -734,9 +683,7 @@ def check_daily_drawdown():
 
         if drawdown_pct >= shared_state.MAX_DRAWDOWN_PERCENT:
             logging.getLogger("System").warning(f"🚨 [EQUITY ALERT] ขาดทุนสะสม {drawdown_pct:.2f}% (เกินลิมิต {shared_state.MAX_DRAWDOWN_PERCENT}%)")
-            
             close_all_positions()
-            
             shared_state.IS_DAY_OFF = True
             logging.getLogger("System").warning("🐢 บอทเข้าสู่ Day-Off Mode หยุดเทรดชั่วคราวจนกว่าจะถึงพรุ่งนี้!")
             return True
@@ -744,17 +691,12 @@ def check_daily_drawdown():
     return False
 
 def close_all_positions():
-    """ 🚨 ฟังก์ชันล้างพอร์ต ปิดทุกออเดอร์ที่ค้างอยู่ทันที """
-    import MetaTrader5 as mt5
-    import logging
-    
     positions = mt5.positions_get()
     current_tickets = []
     if positions:
         for pos in positions:
             ticket = pos.ticket
-            current_tickets.append(ticket) # 🟢 เก็บตั๋วใส่กระเป๋า
-            
+            current_tickets.append(ticket)
             if ticket not in shared_state.ACTIVE_TRADE_TRACKER:
                 shared_state.ACTIVE_TRADE_TRACKER[ticket] = {"max_p": 0.0, "max_l": 0.0}
         
@@ -764,7 +706,6 @@ def close_all_positions():
         tick = mt5.symbol_info_tick(pos.symbol)
         if tick is None: continue
         
-        # ถ้าถือ BUY ให้สั่ง SELL, ถ้าถือ SELL ให้สั่ง BUY
         order_type = mt5.ORDER_TYPE_SELL if pos.type == mt5.ORDER_TYPE_BUY else mt5.ORDER_TYPE_BUY
         price = tick.bid if pos.type == mt5.ORDER_TYPE_BUY else tick.ask
         
@@ -785,15 +726,13 @@ def close_all_positions():
     return True
 
 def is_safe_trading_time(symbol):
-
     if "BTC" in symbol.upper():
         return True 
         
     from datetime import datetime, timedelta, time
-    import logging
     
     thai_time = datetime.utcnow() + timedelta(hours=7)
-    weekday = thai_time.weekday() # 0 = จันทร์, 5 = เสาร์, 6 = อาทิตย์
+    weekday = thai_time.weekday()
     current_time = thai_time.time()
 
     if weekday == 5 and current_time > time(3, 30):
@@ -803,7 +742,6 @@ def is_safe_trading_time(symbol):
         return False
 
     if weekday == 0 and current_time < time(8, 0):
-
         if current_time.minute % 30 == 0 and current_time.second < 10:
             logging.getLogger(symbol).warning(f"⏳ ตลาดเพิ่งเปิดวันจันทร์ บอทรอให้กราฟนิ่ง 2 ชั่วโมง (เริ่ม 08:00 น.)")
         return False
