@@ -21,6 +21,7 @@ except ImportError:
     _shared_state = None
 
 app = Flask(__name__, static_folder=".")
+logging.getLogger("werkzeug").setLevel(logging.ERROR)
 
 STATUS_FILE = "bot_status.json"
 DB_FILE     = "trading_history.db"

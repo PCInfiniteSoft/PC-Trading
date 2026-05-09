@@ -290,7 +290,10 @@ async def trading_job():
 
                                     log.info(f"🎯 [Python] ผ่านด่าน Agent 3 แล้ว! กำลังส่งคำสั่ง BUY → MT5 (SENTINEL OK)...")
                                     
-                                    if place_order(s, "BUY", tick.ask, rsi, f"L{i+1}:Score={score}"): 
+                                    sym_info = mt5.symbol_info(s)
+                                    spread_now = round((tick.ask - tick.bid) / sym_info.point, 1) if sym_info else None
+                                    if place_order(s, "BUY", tick.ask, rsi, f"L{i+1}:Score={score}",
+                                                   extra={"analyst_score": score, "scout_score": scout.get("score"), "spread": spread_now}):
                                         async with shared_state.trade_layers_lock:
                                             shared_state.TRADE_LAYERS.setdefault(s, {"buy":[False]*5, "sell":[False]*5})["buy"][i] = True
                                         has_buy = True
@@ -351,7 +354,10 @@ async def trading_job():
 
                                     log.info(f"🎯 [Python] ผ่านด่าน Agent 3 แล้ว! กำลังส่งคำสั่ง SELL → MT5 (SENTINEL OK)...")
                                     
-                                    if place_order(s, "SELL", tick.bid, rsi, f"L{i+1}:Score={score}"): 
+                                    sym_info = mt5.symbol_info(s)
+                                    spread_now = round((tick.bid - tick.ask) / sym_info.point * -1, 1) if sym_info else None
+                                    if place_order(s, "SELL", tick.bid, rsi, f"L{i+1}:Score={score}",
+                                                   extra={"analyst_score": score, "scout_score": scout.get("score"), "spread": spread_now}):
                                         async with shared_state.trade_layers_lock:
                                             shared_state.TRADE_LAYERS.setdefault(s, {"buy":[False]*5, "sell":[False]*5})["sell"][i] = True
                                         has_sell = True
@@ -522,7 +528,7 @@ def check_volatility(symbol, threshold):
     diff = abs(curr_close - prev_close) / prev_close * 100
     return diff > safe_threshold
 
-def place_order(symbol, type, price, rsi, comment):
+def place_order(symbol, type, price, rsi, comment, extra=None):
     lot = SYMBOLS_CONFIG[symbol]["lot"]
 
     raw_comment = str(comment).replace('\n', ' ').replace('\r', '').strip()
@@ -580,14 +586,22 @@ def place_order(symbol, type, price, rsi, comment):
     strat = ai.STRATEGY_DATA.get(symbol, {})
     macro_data = getattr(shared_state, 'MACRO_DATA', {}).get(symbol, {})
     m_bias = macro_data.get('bias', 'N/A')
-    a_dir = macro_data.get('allowed_direction', 'BOTH')
+    a_dir  = macro_data.get('allowed_direction', 'BOTH')
+    ex     = extra or {}
 
     dbm.log_trade_entry(
         ticket=res.order, symbol=symbol, order_type=type, lot_size=lot,
         entry_price=res.price, entry_reason=comment, slippage=slippage,
         rsi_entry=rsi, market_regime=strat.get("regime", "N/A"),
         vol_thresh=strat.get("threshold", 0.0), risk_level=risk_level,
-        macro_bias=m_bias, allowed_dir=a_dir
+        macro_bias=m_bias, allowed_dir=a_dir,
+        analyst_score=ex.get("analyst_score"),
+        scout_score=ex.get("scout_score"),
+        atr_pct_entry=strat.get("atr_pct"),
+        spread_entry=ex.get("spread"),
+        bb_pct_entry=strat.get("bb_pct"),
+        h4_trend=macro_data.get("h4_trend"),
+        d1_trend=macro_data.get("d1_trend"),
     )
 
     shared_state.ACTIVE_TRADE_TRACKER[res.order] = {"max_p": 0.0, "max_l": 0.0}

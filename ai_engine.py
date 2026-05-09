@@ -296,6 +296,8 @@ Output STRICT valid JSON only:
         STRATEGY_DATA[symbol]["buy"]          = sorted(data['buy_levels'],  reverse=True)
         STRATEGY_DATA[symbol]["sell"]         = sorted(data['sell_levels'])
         STRATEGY_DATA[symbol]["threshold"]    = float(data.get('spike_threshold', sym_cfg.get("threshold", 0.25)))
+        STRATEGY_DATA[symbol]["atr_pct"]      = atr_pct
+        STRATEGY_DATA[symbol]["bb_pct"]       = bb_pct
         STRATEGY_DATA[symbol]["tp_activation"]  = float(data.get('tp_activation', 3.0))
         STRATEGY_DATA[symbol]["pullback_pct"]   = float(data.get('pullback_pct', 0.30))
         STRATEGY_DATA[symbol]["be_activation"]  = float(data.get('be_activation', 1.50))

@@ -66,11 +66,21 @@ def init_db():
             )
         ''')
         
-        try:
-            cursor.execute('ALTER TABLE market_context ADD COLUMN macro_bias TEXT')
-            cursor.execute('ALTER TABLE market_context ADD COLUMN allowed_dir TEXT')
-        except:
-            pass # ถ้าคอลัมน์มีอยู่แล้วก็ปล่อยผ่านไป
+        for col in [
+            ('macro_bias',     'TEXT'),
+            ('allowed_dir',    'TEXT'),
+            ('analyst_score',  'REAL'),
+            ('scout_score',    'INTEGER'),
+            ('atr_pct_entry',  'REAL'),
+            ('spread_entry',   'REAL'),
+            ('bb_pct_entry',   'REAL'),
+            ('h4_trend',       'TEXT'),
+            ('d1_trend',       'TEXT'),
+        ]:
+            try:
+                cursor.execute(f'ALTER TABLE market_context ADD COLUMN {col[0]} {col[1]}')
+            except:
+                pass
             
         conn.commit()
         conn.close()
@@ -84,25 +94,32 @@ init_db()
 # 🟢 ฟังก์ชันบันทึกข้อมูล (นำไปใช้ในไฟล์อื่น)
 # ==========================================
 
-def log_trade_entry(ticket, symbol, order_type, lot_size, entry_price, rsi_entry, market_regime, vol_thresh, risk_level, entry_reason, slippage, macro_bias="N/A", allowed_dir="BOTH"):
+def log_trade_entry(ticket, symbol, order_type, lot_size, entry_price, rsi_entry,
+                    market_regime, vol_thresh, risk_level, entry_reason, slippage,
+                    macro_bias="N/A", allowed_dir="BOTH",
+                    analyst_score=None, scout_score=None, atr_pct_entry=None,
+                    spread_entry=None, bb_pct_entry=None, h4_trend=None, d1_trend=None):
     """ บันทึกตอนเปิดไม้ (เข้า 2 ตารางพร้อมกัน) """
     try:
         conn = sqlite3.connect(DB_NAME)
         cursor = conn.cursor()
         entry_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
-        # ลงตาราง 1 (เหมือนเดิม)
+
         cursor.execute('''
            INSERT INTO trade_history (ticket, symbol, order_type, lot_size, entry_time, entry_price, entry_reason, slippage)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ''', (ticket, symbol, order_type, lot_size, entry_time, entry_price, entry_reason, slippage))
-        
-        # 🟢 ลงตาราง 2 (อัปเดตคำสั่ง INSERT ใหม่)
+
         cursor.execute('''
-            INSERT INTO market_context (ticket, rsi_entry, market_regime, volatility_threshold, risk_level, macro_bias, allowed_dir)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (ticket, rsi_entry, market_regime, vol_thresh, risk_level, macro_bias, allowed_dir))
-        
+            INSERT INTO market_context
+              (ticket, rsi_entry, market_regime, volatility_threshold, risk_level,
+               macro_bias, allowed_dir, analyst_score, scout_score, atr_pct_entry,
+               spread_entry, bb_pct_entry, h4_trend, d1_trend)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (ticket, rsi_entry, market_regime, vol_thresh, risk_level,
+              macro_bias, allowed_dir, analyst_score, scout_score, atr_pct_entry,
+              spread_entry, bb_pct_entry, h4_trend, d1_trend))
+
         conn.commit()
         conn.close()
     except Exception as e:
