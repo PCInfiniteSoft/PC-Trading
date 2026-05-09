@@ -193,6 +193,73 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
 .cal-dot{width:6px;height:6px;border-radius:50%;background:var(--red);flex-shrink:0;margin-top:3px}
 .cal-dot.past{background:var(--text3)}
 .cal-dot.active{background:var(--yellow);animation:pulse 1s infinite}
+
+/* ══════════════════════════════════════════
+   RESPONSIVE — Mobile / Tablet
+   ══════════════════════════════════════════ */
+@media (max-width: 900px){
+  /* Topbar: horizontal scroll */
+  .topbar{overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;gap:0;flex-wrap:nowrap}
+  .topbar::-webkit-scrollbar{height:0}
+  .tb-right{flex-shrink:0}
+
+  /* Control bar: two rows */
+  .ctrl-bar{flex-wrap:wrap;gap:6px;padding:6px 10px}
+  .ctrl-btn{padding:5px 10px;font-size:10px}
+  .ctrl-sep{display:none}
+  .conn-pills{margin-left:0;width:100%;justify-content:flex-start}
+  .risk-btns{gap:4px}
+  .rb{width:28px;height:28px;font-size:10px}
+
+  /* Layout: stack vertically */
+  .layout{grid-template-columns:1fr;height:auto;overflow:visible}
+
+  /* Sidebars: show as collapsed sections */
+  .sidebar,.rsidebar{max-height:none;overflow:visible;border:none;border-bottom:1px solid var(--border)}
+  .sidebar{order:2}
+  .main{order:1}
+  .rsidebar{order:3}
+
+  /* Stats row: horizontal scroll */
+  .stats-row{grid-template-columns:repeat(8,140px)!important;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .stats-row::-webkit-scrollbar{height:0}
+
+  /* 4-panel grid: single column, each panel auto height */
+  .grid4{grid-template-columns:1fr;grid-template-rows:auto;height:auto;overflow:visible}
+  .panel{height:400px}
+
+  /* Left sidebar: kill the auto margin push so agents section shows */
+  #agents-title{margin-top:0!important}
+
+  /* Tables: horizontal scroll */
+  .pb{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .th-row,.tr{min-width:500px}
+
+  /* Symbol cards: full width */
+  .sym-cards{grid-template-columns:1fr 1fr}
+  #sym-cards-inner{grid-template-columns:1fr 1fr!important}
+
+  /* Equity chart smaller */
+  #eqCanvas{height:36px}
+  .eq-val{font-size:13px}
+}
+
+@media (max-width: 480px){
+  /* Very small screens */
+  .topbar{height:auto;padding:6px 10px;flex-wrap:wrap}
+  .logo{border-right:none;margin-right:8px;padding-right:8px}
+  .tb-right{width:100%;justify-content:flex-end;margin-left:0}
+
+  .ctrl-btn{padding:4px 8px;font-size:9px}
+  .rb{width:26px;height:26px}
+
+  .sym-cards,#sym-cards-inner{grid-template-columns:1fr!important}
+
+  .panel{height:350px}
+
+  /* Regime bar: smaller */
+  .reg-seg{font-size:7px;height:15px}
+}
 </style>
 </head>
 <body>
@@ -279,7 +346,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
   <div class="sec-title">Economic Calendar <span class="cnt" id="cal-cnt">0</span></div>
   <div id="cal-list" style="overflow-y:auto;max-height:160px;flex-shrink:0;"></div>
   <!-- Agents -->
-  <div class="sec-title" style="margin-top:auto;">Agents</div>
+  <div class="sec-title" style="margin-top:auto;" id="agents-title">Agents</div>
   <div style="overflow-y:auto;">
     <div class="agent-row">
       <div class="ag-ic" style="background:rgba(255,193,7,.1)">👑</div>
