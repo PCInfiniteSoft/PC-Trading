@@ -131,6 +131,10 @@ async def trading_job():
 
         # 🟢 DIRECTOR วิเคราะห์ทีละ Symbol พร้อม ATR% [UPGRADE #5]
         for macro_symbol in SYMBOLS_CONFIG:
+            if not is_safe_trading_time(macro_symbol):
+                logging.getLogger("System").info(
+                    f"⏭️ [DIRECTOR] ข้าม {macro_symbol} — ตลาดปิด ไม่วิเคราะห์ Macro")
+                continue
             macro_trends     = adv.get_macro_trends(macro_symbol)
             h4_trend_status  = macro_trends["h4_trend"]
             d1_trend_status  = macro_trends["d1_trend"]
