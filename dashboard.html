@@ -6,7 +6,7 @@
 <title>PC Trading — Dashboard</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#0a0c0f;--bg2:#0e1117;--bg3:#141820;--bg4:#1a2030;--border:#1e2a3a;--border2:#243040;--text:#c8d4e8;--text2:#7a8fa8;--text3:#4a5a70;--accent:#00d4aa;--accent2:#0099ff;--green:#00e676;--red:#ff3d57;--yellow:#ffc107;--purple:#a855f7;--orange:#ff6b35;--font-mono:'JetBrains Mono',monospace;--font-ui:'Inter',sans-serif}
+:root{--bg:#0a0c0f;--bg2:#0e1117;--bg3:#141820;--bg4:#1a2030;--border:#1e2a3a;--border2:#243040;--text:#c8d4e8;--text2:#7a8fa8;--text3:#4a5a70;--accent:#00d4aa;--accent2:#0099ff;--green:#00e676;--red:#ff3d57;--yellow:#ffc107;--purple:#a855f7;--orange:#ff6b35;--pink:#ff4fa3;--font-mono:'JetBrains Mono',monospace;--font-ui:'Inter',sans-serif}
 *{margin:0;padding:0;box-sizing:border-box}
 body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size:12px;min-height:100vh;overflow-x:hidden}
 ::-webkit-scrollbar{width:4px;height:4px}::-webkit-scrollbar-track{background:var(--bg2)}::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
@@ -184,6 +184,48 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
 .cpill-off{background:rgba(255,61,87,.08);color:var(--red);border-color:rgba(255,61,87,.25)}
 .cpill-dot{width:5px;height:5px;border-radius:50%;flex-shrink:0}
 .cpill-on .cpill-dot{background:var(--green)}.cpill-off .cpill-dot{background:var(--red);animation:pulse 1.2s infinite}
+/* ── Compact Agent Cards (Dashboard panel) ── */
+.ag-panel-wrap{padding:8px;display:flex;flex-direction:column;gap:6px;overflow-y:auto;height:100%}
+.ag-sec-lbl{font-family:var(--font-mono);font-size:8px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.12em;padding:0 2px 3px;display:flex;align-items:center;gap:6px}
+.ag-sec-lbl::after{content:'';flex:1;height:1px;background:var(--border)}
+.ag-grid-1{display:grid;grid-template-columns:1fr}
+.ag-grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}
+.ag-grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
+.agc{background:var(--bg3);border:1px solid var(--border);border-radius:5px;padding:7px 9px;display:flex;flex-direction:column;gap:4px;position:relative;overflow:hidden;transition:border-color .2s,box-shadow .2s}
+.agc::before{content:'';position:absolute;left:0;top:0;bottom:0;width:2px}
+.agc-teal::before{background:var(--accent)}.agc-teal:hover{border-color:rgba(0,212,170,.35)}
+.agc-blue::before{background:var(--accent2)}.agc-blue:hover{border-color:rgba(0,153,255,.35)}
+.agc-red::before{background:var(--red)}.agc-red:hover{border-color:rgba(255,61,87,.35)}
+.agc-yellow::before{background:var(--yellow)}.agc-yellow:hover{border-color:rgba(255,193,7,.35)}
+.agc-purple::before{background:var(--purple)}.agc-purple:hover{border-color:rgba(168,85,247,.35)}
+.agc-orange::before{background:var(--orange)}.agc-orange:hover{border-color:rgba(255,107,53,.35)}
+.agc-pink::before{background:var(--pink)}.agc-pink:hover{border-color:rgba(255,79,163,.35)}
+.agc-top{display:flex;align-items:center;gap:6px}
+.agc-icon{line-height:1;flex-shrink:0;font-size:22px}
+.agc-icon.sm{font-size:15px}
+.agc-tw{flex:1;min-width:0}
+.agc-name{font-family:var(--font-mono);font-size:12px;font-weight:700;color:var(--text);line-height:1.2}
+.agc-name.sm{font-size:10px}
+.agc-role{font-size:9px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.agc-mbadge{padding:1px 5px;border-radius:2px;font-family:var(--font-mono);font-size:8px;font-weight:700;white-space:nowrap;flex-shrink:0;align-self:flex-start}
+.agc-mb-gpt{background:rgba(0,153,255,.12);color:var(--accent2);border:1px solid rgba(0,153,255,.3)}
+.agc-mb-loc{background:rgba(122,143,168,.08);color:var(--text2);border:1px solid rgba(122,143,168,.2)}
+.agc-desc{font-size:9px;color:var(--text3);line-height:1.4;font-family:var(--font-mono)}
+.agc-foot{display:flex;align-items:center;justify-content:space-between;gap:4px}
+.agc-status{display:flex;align-items:center;gap:3px;font-family:var(--font-mono);font-size:8px;font-weight:700;flex-shrink:0}
+.agc-dot{width:5px;height:5px;border-radius:50%;flex-shrink:0}
+.agc-dot-on{background:var(--green);animation:pulse 1.5s infinite}
+.agc-dot-off{background:var(--red)}
+.agc-dot-warn{background:var(--yellow);animation:pulse 1.5s infinite}
+.agc-data{font-family:var(--font-mono);font-size:8px;color:var(--text3);text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* director: horizontal big card */
+.agc.agc-director{flex-direction:row;gap:10px;align-items:flex-start;padding:9px 12px}
+.agc.agc-director .agc-icon{font-size:34px;margin-top:2px}
+.agc.agc-director .agc-name{font-size:16px}
+.agc.agc-director .agc-role{font-size:10px;color:var(--accent)}
+.agc.agc-director .agc-desc{font-size:10px;color:var(--text2)}
+.agc.agc-director .agc-inner{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+
 /* economic calendar */
 .cal-row{display:flex;align-items:flex-start;gap:7px;padding:5px 10px;border-bottom:1px solid rgba(30,42,58,.5)}
 .cal-time{font-family:var(--font-mono);font-size:10px;color:var(--accent2);flex-shrink:0;min-width:36px}
@@ -430,6 +472,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
       <div class="tabs">
         <div class="tab act" data-tab="trades">Recent Trades</div>
         <div class="tab" data-tab="logs">System Logs</div>
+        <div class="tab" data-tab="agents">Agents</div>
       </div>
       <div class="pb" id="tab-trades">
         <div class="th-row" style="grid-template-columns:56px 60px 40px 44px 1fr 52px">
@@ -438,6 +481,115 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
         <div id="trades-table"></div>
       </div>
       <div class="pb" id="tab-logs" style="display:none"><div id="logs-list"></div></div>
+      <div id="tab-agents" style="display:none;flex:1;overflow:hidden">
+        <div class="ag-panel-wrap">
+          <!-- HEAD OFFICE -->
+          <div class="ag-sec-lbl">Head Office</div>
+          <div class="ag-grid-1">
+            <div class="agc agc-teal agc-director">
+              <div class="agc-icon">🎩</div>
+              <div class="agc-inner">
+                <div class="agc-top">
+                  <div class="agc-tw">
+                    <div class="agc-name">DIRECTOR</div>
+                    <div class="agc-role">Macro Strategist</div>
+                  </div>
+                  <div class="agc-mbadge agc-mb-gpt">GPT-4o-mini</div>
+                </div>
+                <div class="agc-desc">วิเคราะห์ H4/D1 Trend + ข่าว ForexFactory — ตัดสิน macro_bias และ allowed_direction ปรับ Risk Level อัตโนมัติ</div>
+                <div class="agc-foot">
+                  <div class="agc-status"><div class="agc-dot agc-dot-on"></div><span style="color:var(--green)">ONLINE</span></div>
+                  <div class="agc-data" id="ag-dir-data">—</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- ANALYSIS ROOM -->
+          <div class="ag-sec-lbl">Analysis Room</div>
+          <div class="ag-grid-3">
+            <div class="agc agc-blue">
+              <div class="agc-top">
+                <div class="agc-icon">🧠</div>
+                <div class="agc-tw"><div class="agc-name">ANALYST</div><div class="agc-role">Entry Sniper</div></div>
+                <div class="agc-mbadge agc-mb-gpt">GPT</div>
+              </div>
+              <div class="agc-desc">Score 0–12pt Supertrend + SMC Zone + RSI</div>
+              <div class="agc-foot">
+                <div class="agc-status" id="ag-analyst-status"><div class="agc-dot agc-dot-on"></div><span style="color:var(--green)">ONLINE</span></div>
+                <div class="agc-data" id="ag-analyst-data">—</div>
+              </div>
+            </div>
+            <div class="agc agc-yellow">
+              <div class="agc-top">
+                <div class="agc-icon">🔭</div>
+                <div class="agc-tw"><div class="agc-name">SCOUT</div><div class="agc-role">Pre-filter</div></div>
+                <div class="agc-mbadge agc-mb-loc">Local</div>
+              </div>
+              <div class="agc-desc">MACD + EMA alignment bonus +0/+1/+2</div>
+              <div class="agc-foot">
+                <div class="agc-status"><div class="agc-dot agc-dot-on"></div><span style="color:var(--green)">ONLINE</span></div>
+                <div class="agc-data">MACD · EMA20/50</div>
+              </div>
+            </div>
+            <div class="agc agc-red">
+              <div class="agc-top">
+                <div class="agc-icon">🛡️</div>
+                <div class="agc-tw"><div class="agc-name">GUARDIAN</div><div class="agc-role">Risk Gate</div></div>
+                <div class="agc-mbadge agc-mb-loc">Local</div>
+              </div>
+              <div class="agc-desc">Cooldown · Spread · Trend · Layers≤3</div>
+              <div class="agc-foot">
+                <div class="agc-status"><div class="agc-dot agc-dot-on"></div><span style="color:var(--green)">ONLINE</span></div>
+                <div class="agc-data">Max 3 layers</div>
+              </div>
+            </div>
+          </div>
+          <!-- SUPPORT DESKS -->
+          <div class="ag-sec-lbl">Support Desks</div>
+          <div class="ag-grid-4">
+            <div class="agc agc-purple">
+              <div class="agc-top">
+                <div class="agc-icon sm">📡</div>
+                <div class="agc-tw"><div class="agc-name sm">SENTINEL</div><div class="agc-role">MT5 Watch</div></div>
+              </div>
+              <div class="agc-foot">
+                <div class="agc-status" id="ag-sentinel-status"><div class="agc-dot agc-dot-on"></div><span style="color:var(--green)">ON</span></div>
+                <div class="agc-data" id="ag-sentinel-data">—</div>
+              </div>
+            </div>
+            <div class="agc agc-orange">
+              <div class="agc-top">
+                <div class="agc-icon sm">📊</div>
+                <div class="agc-tw"><div class="agc-name sm">REGIME</div><div class="agc-role">Stabilizer</div></div>
+              </div>
+              <div class="agc-foot">
+                <div class="agc-status"><div class="agc-dot agc-dot-on"></div><span style="color:var(--green)">ON</span></div>
+                <div class="agc-data" id="ag-regime-data">3x confirm</div>
+              </div>
+            </div>
+            <div class="agc agc-red">
+              <div class="agc-top">
+                <div class="agc-icon sm">⚡</div>
+                <div class="agc-tw"><div class="agc-name sm">CIRCUIT</div><div class="agc-role">Breaker</div></div>
+              </div>
+              <div class="agc-foot">
+                <div class="agc-status" id="ag-circuit-status"><div class="agc-dot agc-dot-on"></div><span style="color:var(--green)">ON</span></div>
+                <div class="agc-data" id="ag-circuit-data">Standby</div>
+              </div>
+            </div>
+            <div class="agc agc-pink">
+              <div class="agc-top">
+                <div class="agc-icon sm">📰</div>
+                <div class="agc-tw"><div class="agc-name sm">NEWS</div><div class="agc-role">Monitor</div></div>
+              </div>
+              <div class="agc-foot">
+                <div class="agc-status"><div class="agc-dot agc-dot-on"></div><span style="color:var(--green)">ON</span></div>
+                <div class="agc-data" id="ag-news-data">—</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Panel 4: Symbol cards + mini chart -->
@@ -581,8 +733,9 @@ document.querySelectorAll('.tab').forEach(t=>{
     document.querySelectorAll('.tab').forEach(x=>x.classList.remove('act'));
     t.classList.add('act');
     const tab = t.dataset.tab;
-    $('tab-trades').style.display = tab==='trades'?'flex':'none';
-    $('tab-logs').style.display   = tab==='logs'?'block':'none';
+    $('tab-trades').style.display  = tab==='trades'?'flex':'none';
+    $('tab-logs').style.display    = tab==='logs'?'block':'none';
+    $('tab-agents').style.display  = tab==='agents'?'flex':'none';
     if(tab==='trades') $('tab-trades').style.flexDirection='column';
   });
 });
@@ -845,6 +998,9 @@ async function fetchAndRender(){
     // ── Economic Calendar ──
     renderCalendar(d.news_calendar||[]);
 
+    // ── Agent Cards ──
+    renderAgents(d, d.news_calendar||[]);
+
     // ── Symbols ──
     if(d.symbols) renderSymbols(d.symbols);
 
@@ -887,6 +1043,60 @@ async function fetchAndRender(){
     $('hb-txt').innerHTML = `⚠️ <span style="color:var(--red)">Cannot reach API — is web_app.py running?</span>`;
     console.warn('Fetch error:', err);
   }
+}
+
+// ══════════════════════════════════════════════════════
+//  Agent Cards data update
+// ══════════════════════════════════════════════════════
+function renderAgents(d, newsCal){
+  const aiOnline   = d.ai_online !== false;
+  const aiErrCode  = d.ai_error_code || '';
+  const syms       = d.symbols || {};
+  const state      = d.state || '';
+
+  // DIRECTOR — show per-symbol direction
+  const dirParts = Object.entries(syms).map(([s,v])=>{
+    const dir = v.allowed_dir||'?';
+    const col = dir==='BUY_ONLY'?'#00e676':dir==='SELL_ONLY'?'#ff3d57':'#ffc107';
+    return `<span style="color:${col}">${s.replace('USDm','')}: ${dir}</span>`;
+  });
+  $('ag-dir-data').innerHTML = dirParts.join(' · ') || '—';
+
+  // ANALYST status
+  const aStatus = $('ag-analyst-status');
+  if(aiOnline){
+    aStatus.innerHTML = '<div class="agc-dot agc-dot-on"></div><span style="color:var(--green)">ONLINE</span>';
+    $('ag-analyst-data').textContent = 'Score-based';
+  } else {
+    aStatus.innerHTML = `<div class="agc-dot agc-dot-off"></div><span style="color:var(--red)">ERR ${aiErrCode}</span>`;
+    $('ag-analyst-data').textContent = 'Offline';
+  }
+
+  // SENTINEL — MT5 connection
+  const mt5Ok = d.mt5_online !== false && state && state !== 'STOPPED';
+  const sStatus = $('ag-sentinel-status');
+  sStatus.innerHTML = mt5Ok
+    ? '<div class="agc-dot agc-dot-on"></div><span style="color:var(--green)">ON</span>'
+    : '<div class="agc-dot agc-dot-off"></div><span style="color:var(--red)">OFF</span>';
+  const mt5Disc = d.mt5_disconnects || 0;
+  $('ag-sentinel-data').textContent = mt5Disc > 0 ? `×${mt5Disc} reconn` : 'Connected';
+
+  // CIRCUIT BREAKER — cooldown state
+  const isCD    = state.includes('COOLDOWN');
+  const cdMin   = d.cooldown_remaining || '';
+  const cStatus = $('ag-circuit-status');
+  cStatus.innerHTML = isCD
+    ? `<div class="agc-dot agc-dot-warn"></div><span style="color:var(--yellow)">COOL</span>`
+    : '<div class="agc-dot agc-dot-on"></div><span style="color:var(--green)">ON</span>';
+  $('ag-circuit-data').textContent = isCD ? `${cdMin}m left` : 'Standby';
+
+  // NEWS events count
+  const newsCnt = newsCal?.length || 0;
+  $('ag-news-data').textContent = newsCnt > 0 ? `${newsCnt} events` : 'No events';
+
+  // REGIME — show current regime per symbol
+  const regimes = Object.values(syms).map(v=>v.regime||'?').filter(Boolean);
+  $('ag-regime-data').textContent = regimes.length ? regimes.join(' · ') : '3x confirm';
 }
 
 // ── First render + auto-refresh every 5s ──

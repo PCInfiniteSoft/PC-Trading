@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PC Trading — Agent Cards Preview</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0a0c0f;--bg2:#0e1117;--bg3:#141820;--bg4:#1a2030;
+  --border:#1e2a3a;--border2:#243040;
+  --text:#c8d4e8;--text2:#7a8fa8;--text3:#4a5a70;
+  --accent:#00d4aa;--accent2:#0099ff;
+  --green:#00e676;--red:#ff3d57;--yellow:#ffc107;
+  --purple:#a855f7;--orange:#ff6b35;--pink:#ff4fa3;
+  --font-mono:'JetBrains Mono',monospace;--font-ui:'Inter',sans-serif
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size:12px;min-height:100vh;padding:20px}
+::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:var(--bg2)}::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+
+/* ── Top bar ── */
+.topbar{display:flex;align-items:center;gap:12px;margin-bottom:24px;padding-bottom:16px;border-bottom:1px solid var(--border)}
+.logo{font-family:var(--font-mono);font-weight:700;font-size:16px;color:var(--accent);letter-spacing:.05em}
+.logo span{color:var(--text3);font-size:11px;font-weight:400;margin-left:8px}
+.status-pill{display:flex;align-items:center;gap:5px;padding:3px 10px;border-radius:20px;font-size:9px;font-weight:700;font-family:var(--font-mono);background:rgba(0,230,118,.08);color:var(--green);border:1px solid rgba(0,230,118,.2);letter-spacing:.06em}
+.status-pill .dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse 1.5s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+
+/* ── Section header ── */
+.section-hdr{display:flex;align-items:center;gap:8px;margin-bottom:12px;margin-top:28px}
+.section-hdr:first-of-type{margin-top:0}
+.section-icon{font-size:11px;color:var(--text3)}
+.section-lbl{font-family:var(--font-mono);font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.12em}
+.section-line{flex:1;height:1px;background:var(--border)}
+
+/* ── Card grid ── */
+.card-grid-1{display:grid;grid-template-columns:1fr;gap:0}
+.card-grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.card-grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+
+/* ── Agent Card ── */
+.agent-card{
+  background:var(--bg2);
+  border:1px solid var(--border);
+  border-radius:8px;
+  overflow:hidden;
+  position:relative;
+  transition:border-color .2s, transform .15s, box-shadow .2s;
+  cursor:default;
+}
+.agent-card:hover{
+  transform:translateY(-2px);
+  box-shadow:0 8px 32px rgba(0,0,0,.4);
+}
+
+/* card accent stripe on left */
+.agent-card::before{
+  content:'';position:absolute;left:0;top:0;bottom:0;width:3px;
+}
+
+/* color variants */
+.ac-teal::before{background:linear-gradient(180deg,var(--accent),rgba(0,212,170,.2));border-color:rgba(0,212,170,.25)}
+.ac-teal{border-color:rgba(0,212,170,.2)}
+.ac-teal:hover{border-color:rgba(0,212,170,.5);box-shadow:0 8px 32px rgba(0,212,170,.1)}
+
+.ac-blue::before{background:linear-gradient(180deg,var(--accent2),rgba(0,153,255,.2))}
+.ac-blue{border-color:rgba(0,153,255,.2)}
+.ac-blue:hover{border-color:rgba(0,153,255,.5);box-shadow:0 8px 32px rgba(0,153,255,.1)}
+
+.ac-purple::before{background:linear-gradient(180deg,var(--purple),rgba(168,85,247,.2))}
+.ac-purple{border-color:rgba(168,85,247,.2)}
+.ac-purple:hover{border-color:rgba(168,85,247,.5);box-shadow:0 8px 32px rgba(168,85,247,.1)}
+
+.ac-yellow::before{background:linear-gradient(180deg,var(--yellow),rgba(255,193,7,.2))}
+.ac-yellow{border-color:rgba(255,193,7,.2)}
+.ac-yellow:hover{border-color:rgba(255,193,7,.5);box-shadow:0 8px 32px rgba(255,193,7,.1)}
+
+.ac-red::before{background:linear-gradient(180deg,var(--red),rgba(255,61,87,.2))}
+.ac-red{border-color:rgba(255,61,87,.2)}
+.ac-red:hover{border-color:rgba(255,61,87,.5);box-shadow:0 8px 32px rgba(255,61,87,.1)}
+
+.ac-orange::before{background:linear-gradient(180deg,var(--orange),rgba(255,107,53,.2))}
+.ac-orange{border-color:rgba(255,107,53,.2)}
+.ac-orange:hover{border-color:rgba(255,107,53,.5);box-shadow:0 8px 32px rgba(255,107,53,.1)}
+
+.ac-pink::before{background:linear-gradient(180deg,var(--pink),rgba(255,79,163,.2))}
+.ac-pink{border-color:rgba(255,79,163,.2)}
+.ac-pink:hover{border-color:rgba(255,79,163,.5);box-shadow:0 8px 32px rgba(255,79,163,.1)}
+
+/* desk label */
+.card-desk{font-family:var(--font-mono);font-size:8px;color:var(--text3);text-transform:uppercase;letter-spacing:.1em;padding:6px 12px 0 14px}
+
+/* card body */
+.card-body{display:flex;align-items:flex-start;gap:12px;padding:10px 14px 14px 14px}
+
+/* avatar */
+.av-wrap{flex-shrink:0;width:90px;height:90px;border-radius:6px;overflow:hidden;display:flex;align-items:center;justify-content:center;position:relative}
+.av-bg{position:absolute;inset:0;border-radius:6px}
+.av-emoji{font-size:52px;line-height:1;position:relative;z-index:1;user-select:none;filter:drop-shadow(0 4px 12px rgba(0,0,0,.6))}
+
+/* avatar background colors */
+.av-director .av-bg{background:radial-gradient(circle at 50% 80%, rgba(0,212,170,.25) 0%, rgba(0,212,170,.05) 70%);border:1px solid rgba(0,212,170,.2)}
+.av-analyst .av-bg{background:radial-gradient(circle at 50% 80%, rgba(0,153,255,.25) 0%, rgba(0,153,255,.05) 70%);border:1px solid rgba(0,153,255,.2)}
+.av-guardian .av-bg{background:radial-gradient(circle at 50% 80%, rgba(255,61,87,.2) 0%, rgba(255,61,87,.05) 70%);border:1px solid rgba(255,61,87,.2)}
+.av-scout .av-bg{background:radial-gradient(circle at 50% 80%, rgba(255,193,7,.2) 0%, rgba(255,193,7,.05) 70%);border:1px solid rgba(255,193,7,.2)}
+.av-sentinel .av-bg{background:radial-gradient(circle at 50% 80%, rgba(168,85,247,.2) 0%, rgba(168,85,247,.05) 70%);border:1px solid rgba(168,85,247,.2)}
+
+/* big card avatar */
+.av-wrap.big{width:120px;height:120px}
+.av-wrap.big .av-emoji{font-size:68px}
+
+/* info */
+.card-info{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px}
+.card-name-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.card-name{font-family:var(--font-mono);font-size:18px;font-weight:700;color:var(--text);line-height:1}
+.card-name.big{font-size:24px}
+.model-badge{padding:2px 8px;border-radius:3px;font-family:var(--font-mono);font-size:9px;font-weight:700;letter-spacing:.06em;white-space:nowrap}
+.mb-mini{background:rgba(0,212,170,.12);color:var(--accent);border:1px solid rgba(0,212,170,.3)}
+.mb-gpt{background:rgba(0,153,255,.12);color:var(--accent2);border:1px solid rgba(0,153,255,.3)}
+.mb-local{background:rgba(122,143,168,.1);color:var(--text2);border:1px solid rgba(122,143,168,.2)}
+
+.card-role{font-size:11px;font-weight:600}
+.role-teal{color:var(--accent)}.role-blue{color:var(--accent2)}.role-red{color:var(--red)}
+.role-yellow{color:var(--yellow)}.role-purple{color:var(--purple)}.role-orange{color:var(--orange)}
+
+.card-desc{font-size:11px;color:var(--text2);line-height:1.55;max-width:480px}
+
+/* card footer */
+.card-foot{display:flex;align-items:center;justify-content:space-between;padding:8px 14px;border-top:1px solid var(--border);background:var(--bg3)}
+.online-pill{display:flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:9px;font-weight:700;letter-spacing:.06em}
+.ol-dot{width:6px;height:6px;border-radius:50%}
+.ol-green{background:var(--green);color:var(--green);animation:pulse 1.5s infinite}
+.ol-yellow{background:var(--yellow);color:var(--yellow)}
+.ol-red{background:var(--red);color:var(--red)}
+.ol-text-green{color:var(--green)}
+.ol-text-yellow{color:var(--yellow)}
+.ol-text-red{color:var(--red)}
+
+.cfg-btn{font-family:var(--font-mono);font-size:9px;color:var(--text3);cursor:pointer;transition:color .15s;letter-spacing:.04em;background:none;border:none;padding:0}
+.cfg-btn:hover{color:var(--accent)}
+
+/* stats row inside card */
+.card-stats{display:flex;gap:14px;margin-top:2px}
+.cs-item{display:flex;flex-direction:column;gap:1px}
+.cs-lbl{font-size:8px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;font-family:var(--font-mono)}
+.cs-val{font-family:var(--font-mono);font-size:12px;font-weight:700}
+.cv-green{color:var(--green)}.cv-blue{color:var(--accent2)}.cv-yellow{color:var(--yellow)}.cv-red{color:var(--red)}.cv-purple{color:var(--purple)}
+
+/* separator */
+.sep-line{height:1px;background:var(--border);margin:4px 0}
+
+/* tag row */
+.tag-row{display:flex;gap:4px;flex-wrap:wrap}
+.tag{padding:2px 6px;border-radius:2px;font-size:8px;font-weight:700;font-family:var(--font-mono);letter-spacing:.04em}
+.tag-teal{background:rgba(0,212,170,.1);color:var(--accent);border:1px solid rgba(0,212,170,.2)}
+.tag-blue{background:rgba(0,153,255,.1);color:var(--accent2);border:1px solid rgba(0,153,255,.2)}
+.tag-yellow{background:rgba(255,193,7,.1);color:var(--yellow);border:1px solid rgba(255,193,7,.2)}
+.tag-red{background:rgba(255,61,87,.1);color:var(--red);border:1px solid rgba(255,61,87,.2)}
+.tag-purple{background:rgba(168,85,247,.1);color:var(--purple);border:1px solid rgba(168,85,247,.2)}
+.tag-orange{background:rgba(255,107,53,.1);color:var(--orange);border:1px solid rgba(255,107,53,.2)}
+.tag-grey{background:rgba(122,143,168,.08);color:var(--text2);border:1px solid rgba(122,143,168,.15)}
+</style>
+</head>
+<body>
+
+<!-- Top bar -->
+<div class="topbar">
+  <div class="logo">PC Trading <span>Agent Cards — Preview</span></div>
+  <div class="status-pill"><div class="dot"></div>TRADING FLOOR ACTIVE</div>
+</div>
+
+<!-- ══ HEAD OFFICE ══════════════════════════════════ -->
+<div class="section-hdr">
+  <span class="section-icon">🏢</span>
+  <span class="section-lbl">Head Office</span>
+  <div class="section-line"></div>
+</div>
+
+<div class="card-grid-1">
+  <!-- DIRECTOR -->
+  <div class="agent-card ac-teal">
+    <div class="card-desk">HEAD OFFICE — EXECUTIVE SUITE</div>
+    <div class="card-body">
+      <div class="av-wrap big av-director">
+        <div class="av-bg"></div>
+        <div class="av-emoji">🎩</div>
+      </div>
+      <div class="card-info">
+        <div class="card-name-row">
+          <div class="card-name big">DIRECTOR</div>
+          <div class="model-badge mb-gpt">GPT-4o-mini</div>
+        </div>
+        <div class="card-role role-teal">Macro Strategist</div>
+        <div class="card-desc">
+          ผู้บัญชาการสูงสุด — วิเคราะห์ H4/D1 Trend + ข่าวกล่องแดงจาก ForexFactory
+          ตัดสิน macro_bias และ allowed_direction (BUY_ONLY / SELL_ONLY / BOTH / NONE)
+          ปรับ Risk Level อัตโนมัติตาม ATR และความตึงเครียดของตลาด
+        </div>
+        <div class="card-stats">
+          <div class="cs-item"><div class="cs-lbl">Refresh</div><div class="cs-val cv-teal" style="color:var(--accent)">ATR-triggered</div></div>
+          <div class="cs-item"><div class="cs-lbl">Schedule</div><div class="cs-val cv-blue">06:00 / 13:30 / 19:00</div></div>
+          <div class="cs-item"><div class="cs-lbl">ATR Threshold</div><div class="cs-val cv-yellow">1.2%</div></div>
+        </div>
+        <div class="tag-row">
+          <span class="tag tag-teal">H4 Trend</span>
+          <span class="tag tag-teal">D1 Trend</span>
+          <span class="tag tag-blue">ForexFactory</span>
+          <span class="tag tag-yellow">Risk Gate</span>
+          <span class="tag tag-grey">Macro Bias</span>
+        </div>
+      </div>
+    </div>
+    <div class="card-foot">
+      <div class="online-pill">
+        <div class="ol-dot ol-green"></div>
+        <span class="ol-text-green">ONLINE</span>
+      </div>
+      <button class="cfg-btn">Configure →</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ ANALYSIS ROOM ════════════════════════════════ -->
+<div class="section-hdr">
+  <span class="section-icon">🔬</span>
+  <span class="section-lbl">Analysis Room</span>
+  <div class="section-line"></div>
+</div>
+
+<div class="card-grid-3">
+  <!-- ANALYST -->
+  <div class="agent-card ac-blue">
+    <div class="card-desk">ANALYSIS ROOM — DESK 01</div>
+    <div class="card-body">
+      <div class="av-wrap av-analyst">
+        <div class="av-bg"></div>
+        <div class="av-emoji">🧠</div>
+      </div>
+      <div class="card-info">
+        <div class="card-name-row">
+          <div class="card-name">ANALYST</div>
+          <div class="model-badge mb-gpt">GPT-4o-mini</div>
+        </div>
+        <div class="card-role role-blue">Entry Sniper</div>
+        <div class="card-desc">
+          ประเมินคะแนนเข้า 0–12 pt ด้วย
+          Supertrend H1, SMC Zone, RSI
+          และ SCOUT bonus
+        </div>
+        <div class="sep-line"></div>
+        <div class="tag-row">
+          <span class="tag tag-blue">Supertrend</span>
+          <span class="tag tag-blue">SMC Zone</span>
+          <span class="tag tag-yellow">RSI</span>
+          <span class="tag tag-grey">Scout Bonus</span>
+        </div>
+      </div>
+    </div>
+    <div class="card-foot">
+      <div class="online-pill">
+        <div class="ol-dot ol-green"></div>
+        <span class="ol-text-green">ONLINE</span>
+      </div>
+      <button class="cfg-btn">Configure →</button>
+    </div>
+  </div>
+
+  <!-- SCOUT -->
+  <div class="agent-card ac-yellow">
+    <div class="card-desk">ANALYSIS ROOM — DESK 02</div>
+    <div class="card-body">
+      <div class="av-wrap av-scout">
+        <div class="av-bg"></div>
+        <div class="av-emoji">🔭</div>
+      </div>
+      <div class="card-info">
+        <div class="card-name-row">
+          <div class="card-name">SCOUT</div>
+          <div class="model-badge mb-local">Local</div>
+        </div>
+        <div class="card-role role-yellow">Market Pre-filter</div>
+        <div class="card-desc">
+          Pre-filter ก่อนส่งให้ ANALYST
+          วิเคราะห์ MACD + EMA alignment
+          ส่ง bonus score +0/+1/+2
+        </div>
+        <div class="sep-line"></div>
+        <div class="tag-row">
+          <span class="tag tag-yellow">MACD</span>
+          <span class="tag tag-yellow">EMA Cross</span>
+          <span class="tag tag-grey">Score +0/+1/+2</span>
+        </div>
+      </div>
+    </div>
+    <div class="card-foot">
+      <div class="online-pill">
+        <div class="ol-dot ol-green"></div>
+        <span class="ol-text-green">ONLINE</span>
+      </div>
+      <button class="cfg-btn">Configure →</button>
+    </div>
+  </div>
+
+  <!-- GUARDIAN -->
+  <div class="agent-card ac-red">
+    <div class="card-desk">ANALYSIS ROOM — DESK 03</div>
+    <div class="card-body">
+      <div class="av-wrap av-guardian">
+        <div class="av-bg"></div>
+        <div class="av-emoji">🛡️</div>
+      </div>
+      <div class="card-info">
+        <div class="card-name-row">
+          <div class="card-name">GUARDIAN</div>
+          <div class="model-badge mb-local">Local</div>
+        </div>
+        <div class="card-role role-red">Risk Gate</div>
+        <div class="card-desc">
+          ประตูสุดท้ายก่อนยิงออเดอร์
+          Cooldown, Trend Align,
+          Spread Filter, Max Layers
+        </div>
+        <div class="sep-line"></div>
+        <div class="tag-row">
+          <span class="tag tag-red">Cooldown</span>
+          <span class="tag tag-red">Trend Align</span>
+          <span class="tag tag-red">Spread</span>
+          <span class="tag tag-red">Layers ≤3</span>
+        </div>
+      </div>
+    </div>
+    <div class="card-foot">
+      <div class="online-pill">
+        <div class="ol-dot ol-green"></div>
+        <span class="ol-text-green">ONLINE</span>
+      </div>
+      <button class="cfg-btn">Configure →</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ SUPPORT DESKS ════════════════════════════════ -->
+<div class="section-hdr">
+  <span class="section-icon">🔧</span>
+  <span class="section-lbl">Support Desks</span>
+  <div class="section-line"></div>
+</div>
+
+<div class="card-grid-4">
+  <!-- SENTINEL -->
+  <div class="agent-card ac-purple">
+    <div class="card-desk">INFRASTRUCTURE — OPS</div>
+    <div class="card-body" style="flex-direction:column;gap:8px">
+      <div style="display:flex;gap:10px;align-items:flex-start">
+        <div class="av-wrap av-sentinel" style="width:70px;height:70px">
+          <div class="av-bg"></div>
+          <div class="av-emoji" style="font-size:38px">📡</div>
+        </div>
+        <div class="card-info">
+          <div class="card-name-row">
+            <div class="card-name" style="font-size:15px">SENTINEL</div>
+          </div>
+          <div class="model-badge mb-local" style="width:fit-content">Local</div>
+          <div class="card-role role-purple" style="margin-top:2px">MT5 Watchdog</div>
+          <div class="card-desc">Auto reconnect MT5 — 3 ครั้ง ก่อน failover</div>
+        </div>
+      </div>
+      <div class="tag-row">
+        <span class="tag tag-purple">MT5 Monitor</span>
+        <span class="tag tag-purple">Auto Reconnect</span>
+      </div>
+    </div>
+    <div class="card-foot">
+      <div class="online-pill">
+        <div class="ol-dot ol-green"></div>
+        <span class="ol-text-green">ONLINE</span>
+      </div>
+      <button class="cfg-btn">Configure →</button>
+    </div>
+  </div>
+
+  <!-- REGIME STABILITY -->
+  <div class="agent-card ac-orange">
+    <div class="card-desk">ANALYSIS ROOM — STABILITY</div>
+    <div class="card-body" style="flex-direction:column;gap:8px">
+      <div style="display:flex;gap:10px;align-items:flex-start">
+        <div class="av-wrap" style="width:70px;height:70px;background:radial-gradient(circle at 50% 80%,rgba(255,107,53,.2) 0%,rgba(255,107,53,.05) 70%);border:1px solid rgba(255,107,53,.2);border-radius:6px">
+          <div class="av-emoji" style="font-size:38px;position:relative;z-index:1">📊</div>
+        </div>
+        <div class="card-info">
+          <div class="card-name-row">
+            <div class="card-name" style="font-size:14px">REGIME</div>
+          </div>
+          <div class="model-badge mb-local" style="width:fit-content">Local</div>
+          <div class="card-role role-orange" style="margin-top:2px">Regime Stabilizer</div>
+          <div class="card-desc">ยืนยัน regime เปลี่ยน 3x ก่อนเชื่อ ป้องกัน whipsaw</div>
+        </div>
+      </div>
+      <div class="tag-row">
+        <span class="tag tag-orange">3x Confirm</span>
+        <span class="tag tag-orange">Anti-Whipsaw</span>
+      </div>
+    </div>
+    <div class="card-foot">
+      <div class="online-pill">
+        <div class="ol-dot ol-green"></div>
+        <span class="ol-text-green">ONLINE</span>
+      </div>
+      <button class="cfg-btn">Configure →</button>
+    </div>
+  </div>
+
+  <!-- CIRCUIT BREAKER -->
+  <div class="agent-card ac-red">
+    <div class="card-desk">RISK DESK — CIRCUIT</div>
+    <div class="card-body" style="flex-direction:column;gap:8px">
+      <div style="display:flex;gap:10px;align-items:flex-start">
+        <div class="av-wrap" style="width:70px;height:70px;background:radial-gradient(circle at 50% 80%,rgba(255,61,87,.2) 0%,rgba(255,61,87,.05) 70%);border:1px solid rgba(255,61,87,.2);border-radius:6px">
+          <div class="av-emoji" style="font-size:38px;position:relative;z-index:1">⚡</div>
+        </div>
+        <div class="card-info">
+          <div class="card-name-row">
+            <div class="card-name" style="font-size:13px">CIRCUIT</div>
+          </div>
+          <div class="model-badge mb-local" style="width:fit-content">Local</div>
+          <div class="card-role role-red" style="margin-top:2px">Circuit Breaker</div>
+          <div class="card-desc">3x spike → COOLDOWN 30m Max Drawdown → Day-Off</div>
+        </div>
+      </div>
+      <div class="tag-row">
+        <span class="tag tag-red">3x Spike</span>
+        <span class="tag tag-red">Day-Off Mode</span>
+      </div>
+    </div>
+    <div class="card-foot">
+      <div class="online-pill">
+        <div class="ol-dot ol-green"></div>
+        <span class="ol-text-green">ONLINE</span>
+      </div>
+      <button class="cfg-btn">Configure →</button>
+    </div>
+  </div>
+
+  <!-- NEWS MONITOR -->
+  <div class="agent-card ac-pink">
+    <div class="card-desk">NEWS DESK — MONITOR</div>
+    <div class="card-body" style="flex-direction:column;gap:8px">
+      <div style="display:flex;gap:10px;align-items:flex-start">
+        <div class="av-wrap" style="width:70px;height:70px;background:radial-gradient(circle at 50% 80%,rgba(255,79,163,.2) 0%,rgba(255,79,163,.05) 70%);border:1px solid rgba(255,79,163,.2);border-radius:6px">
+          <div class="av-emoji" style="font-size:38px;position:relative;z-index:1">📰</div>
+        </div>
+        <div class="card-info">
+          <div class="card-name-row">
+            <div class="card-name" style="font-size:13px">NEWS</div>
+          </div>
+          <div class="model-badge mb-local" style="width:fit-content">Local</div>
+          <div class="card-role role-pink" style="color:var(--pink);margin-top:2px">News Monitor</div>
+          <div class="card-desc">ดูข่าว ForexFactory หยุดเทรดช่วงข่าวกล่องแดง</div>
+        </div>
+      </div>
+      <div class="tag-row">
+        <span class="tag" style="background:rgba(255,79,163,.1);color:var(--pink);border:1px solid rgba(255,79,163,.2)">ForexFactory</span>
+        <span class="tag tag-grey">Hyper-Active</span>
+      </div>
+    </div>
+    <div class="card-foot">
+      <div class="online-pill">
+        <div class="ol-dot ol-green"></div>
+        <span class="ol-text-green">ONLINE</span>
+      </div>
+      <button class="cfg-btn">Configure →</button>
+    </div>
+  </div>
+</div>
+
+<br><br>
+</body>
+</html>
