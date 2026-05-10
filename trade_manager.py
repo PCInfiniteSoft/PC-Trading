@@ -214,7 +214,18 @@ async def trading_job():
         if is_ai_update_turn:
             buy_target = strat['buy'][0] if strat.get('buy') else '--'
             logging.getLogger(s).info(f"📊 RSI: {rsi:.2f} | เป้าซื้อ AI: < {buy_target} | ตลาด: {strat['regime']}")
-        
+
+        # ══════════════════════════════════════════════════════════════
+        # [FIX] DIRECTOR DATA GATE
+        # บล็อกการเทรดทั้งหมด (BUY + SELL) จนกว่า DIRECTOR จะวิเคราะห์อย่างน้อย 1 ครั้ง
+        # ป้องกันเทรดโดยไม่มีบริบทตลาด (ปัญหา 20 ไม้แรกก่อน macro bias feature)
+        # ══════════════════════════════════════════════════════════════
+        if not macro_data_check:
+            if is_ai_update_turn:
+                logging.getLogger(s).warning(
+                    f"⛔ [DIRECTOR GATE] ยังไม่มีข้อมูล Macro ของ {s} — รอ DIRECTOR วิเคราะห์ก่อน")
+            continue
+
         safe_buy = strat['buy'][0] if strat.get('buy') else 0
         if safe_buy > 100:
             logging.getLogger("System").error(f"🚨 บล็อกการเทรด {s}: AI ส่งเป้าหมายราคา ({safe_buy}) แทน RSI!")
@@ -398,14 +409,17 @@ async def trading_job():
 
             if max_profit >= TP_ACTIVATION:
                 locked_profit_usd = max_profit * (1.0 - PULLBACK_PCT)
-                price_dist = locked_profit_usd / (pos.volume * point_value_per_lot)
-                
-                if pos.type == mt5.ORDER_TYPE_BUY:
-                    new_sl_price = pos.price_open + price_dist
-                else:
-                    new_sl_price = pos.price_open - price_dist
-                    
-                reason = "Trailing Profit 🏃‍♂️💨"
+                # ── [FIX] ป้องกัน lock ที่น้อยเกินไปจนเสีย spread/swap ──
+                # ต้องมีกำไรที่จะ lock อย่างน้อย $1.00 ไม่งั้น SL ใกล้ราคาเปิดเกินไป
+                if locked_profit_usd >= 1.0:
+                    price_dist = locked_profit_usd / (pos.volume * point_value_per_lot)
+
+                    if pos.type == mt5.ORDER_TYPE_BUY:
+                        new_sl_price = pos.price_open + price_dist
+                    else:
+                        new_sl_price = pos.price_open - price_dist
+
+                    reason = "Trailing Profit 🏃‍♂️💨"
 
             elif max_profit >= BE_ACTIVATION:
                 price_dist = BE_LOCK_PROFIT / (pos.volume * point_value_per_lot)

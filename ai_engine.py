@@ -29,7 +29,7 @@ AI_IS_ONLINE    = True
 AI_ERROR_CODE   = ""
 
 # ATR spike threshold that forces an early DIRECTOR refresh (% of price)
-ATR_SPIKE_THRESHOLD = 0.8   # if H4 ATR% > this, trigger DIRECTOR immediately
+ATR_SPIKE_THRESHOLD = 1.2   # if H4 ATR% > this, trigger DIRECTOR immediately
 
 RISK_PROFILES = {
     1: "Level 1 (Low Risk): Strictly conservative. Require extreme oversold/overbought setups. Maximize safety. Rare trades.",
