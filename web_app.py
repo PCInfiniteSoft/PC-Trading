@@ -67,6 +67,10 @@ def _query_db(sql: str, params: tuple = ()) -> list:
 @app.route("/api/status")
 def api_status():
     data = _read_status()
+    # Overlay live in-memory values so dashboard reflects GUI changes immediately
+    # (bot_status.json is only written every scan loop, not on every GUI change)
+    if _shared_state is not None:
+        data["risk_level"] = _shared_state.CURRENT_RISK_LEVEL
     with _log_lock:
         data["logs"] = list(reversed(_log_buffer[-50:]))
     return jsonify(data)
