@@ -120,6 +120,8 @@ async def ai_macro_analysis(symbol, h4_trend, d1_trend, news_data, atr_pct_h4=0.
             "global_risk":      macro_plan.get("global_risk_level", 3),
             "reason":           macro_plan.get("reason", "—"),
             "atr_pct_h4":       atr_pct_h4,
+            "h4_trend":         h4_trend,
+            "d1_trend":         d1_trend,
             "set_time":         datetime.now(),
         }
 
