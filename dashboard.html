@@ -849,8 +849,8 @@ function renderSymbols(symbols){
     const dirColor = dir==='BUY_ONLY'?'var(--green)':dir==='SELL_ONLY'?'var(--red)':'var(--yellow)';
     const rsiColor = d.rsi<30?'var(--green)':d.rsi>70?'var(--red)':'var(--yellow)';
     const mkt = d.market_status||'—';
-    const mktColor = mkt==='OPEN'?'var(--green)':'var(--red)';
-    const mktBg   = mkt==='OPEN'?'rgba(0,230,118,.12)':'rgba(255,61,87,.12)';
+    const mktColor = mkt==='OPEN'?'var(--green)':mkt==='CLOSED'?'var(--red)':'#666';
+    const mktBg   = mkt==='OPEN'?'rgba(0,230,118,.12)':mkt==='CLOSED'?'rgba(255,61,87,.12)':'rgba(255,255,255,.06)';
     return `<div class="sym-c">
       <div class="sym-top"><span class="sym-name">${sym}</span>
         <span class="stag" style="background:${mktBg};color:${mktColor};border:1px solid ${mktColor}40;font-size:8px">● ${mkt}</span>
@@ -866,8 +866,8 @@ function renderSymbols(symbols){
     const dir = d.allowed_dir||'BOTH';
     const rsiColor = d.rsi<30?'var(--green)':d.rsi>70?'var(--red)':'var(--yellow)';
     const mkt = d.market_status||'—';
-    const mktColor = mkt==='OPEN'?'var(--green)':'var(--red)';
-    const mktBg   = mkt==='OPEN'?'rgba(0,230,118,.12)':'rgba(255,61,87,.12)';
+    const mktColor = mkt==='OPEN'?'var(--green)':mkt==='CLOSED'?'var(--red)':'#666';
+    const mktBg   = mkt==='OPEN'?'rgba(0,230,118,.12)':mkt==='CLOSED'?'rgba(255,61,87,.12)':'rgba(255,255,255,.06)';
     return `<div class="sym-c">
       <div class="sym-top"><span class="sym-name" style="font-size:12px">${sym}</span>
         <span class="stag" style="background:${mktBg};color:${mktColor};border:1px solid ${mktColor}40;font-size:8px">● ${mkt}</span>
