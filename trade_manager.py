@@ -97,9 +97,18 @@ async def trading_job():
                 atr_spike_detected = True
                 break
 
+    # ตลาดเปิดแต่ยังไม่มี macro → บังคับ refresh ทันที (กรณีตลาดปิด-แล้วเปิดใหม่)
+    open_without_macro = [
+        s for s in SYMBOLS_CONFIG
+        if is_safe_trading_time(s) and not getattr(shared_state, 'MACRO_DATA', {}).get(s)
+    ]
+    if open_without_macro:
+        logging.getLogger("System").warning(
+            f"⚠️ [DIRECTOR] ตลาดเปิดแต่ยังไม่มี Macro: {open_without_macro} — บังคับ refresh")
+
     needs_macro_refresh = (
-        (is_macro_time or last_macro is None or atr_spike_detected)
-        and (last_macro is None or last_macro.minute != now.minute)
+        (is_macro_time or last_macro is None or atr_spike_detected or bool(open_without_macro))
+        and (last_macro is None or last_macro.minute != now.minute or bool(open_without_macro))
     )
 
     if needs_macro_refresh:
