@@ -848,8 +848,12 @@ function renderSymbols(symbols){
     const dir = d.allowed_dir||'BOTH';
     const dirColor = dir==='BUY_ONLY'?'var(--green)':dir==='SELL_ONLY'?'var(--red)':'var(--yellow)';
     const rsiColor = d.rsi<30?'var(--green)':d.rsi>70?'var(--red)':'var(--yellow)';
+    const mkt = d.market_status||'—';
+    const mktColor = mkt==='OPEN'?'var(--green)':'var(--red)';
+    const mktBg   = mkt==='OPEN'?'rgba(0,230,118,.12)':'rgba(255,61,87,.12)';
     return `<div class="sym-c">
       <div class="sym-top"><span class="sym-name">${sym}</span>
+        <span class="stag" style="background:${mktBg};color:${mktColor};border:1px solid ${mktColor}40;font-size:8px">● ${mkt}</span>
         <span class="stag" style="background:${dir==='BUY_ONLY'?'rgba(0,230,118,.12)':dir==='SELL_ONLY'?'rgba(255,61,87,.12)':'rgba(255,193,7,.12)'};color:${dirColor};border:1px solid ${dirColor}40;font-size:8px">${dir}</span></div>
       <div class="sym-kv" style="margin-bottom:2px"><span class="sym-k">Price</span><span class="sym-v">${fmt(d.price,2)}</span></div>
       <div class="sym-kv" style="margin-bottom:2px"><span class="sym-k">RSI</span><span class="sym-v" style="color:${rsiColor}">${fmt(d.rsi,1)}</span></div>
@@ -861,8 +865,12 @@ function renderSymbols(symbols){
   $('sym-cards-inner').innerHTML = Object.entries(symbols).map(([sym,d])=>{
     const dir = d.allowed_dir||'BOTH';
     const rsiColor = d.rsi<30?'var(--green)':d.rsi>70?'var(--red)':'var(--yellow)';
+    const mkt = d.market_status||'—';
+    const mktColor = mkt==='OPEN'?'var(--green)':'var(--red)';
+    const mktBg   = mkt==='OPEN'?'rgba(0,230,118,.12)':'rgba(255,61,87,.12)';
     return `<div class="sym-c">
       <div class="sym-top"><span class="sym-name" style="font-size:12px">${sym}</span>
+        <span class="stag" style="background:${mktBg};color:${mktColor};border:1px solid ${mktColor}40;font-size:8px">● ${mkt}</span>
         <span class="sym-v" style="font-size:12px">${fmt(d.price,d.price>1000?2:5)}</span></div>
       <div class="sym-kv" style="margin-bottom:2px"><span class="sym-k">RSI (M5)</span><span class="sym-v" style="color:${rsiColor}">${fmt(d.rsi,1)}</span></div>
       <div class="sym-kv" style="margin-bottom:2px"><span class="sym-k">Regime</span><span class="sym-v">${d.regime||'N/A'}</span></div>

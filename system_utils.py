@@ -165,21 +165,24 @@ def save_web_status():
     for s in SYMBOLS_CONFIG:
         macro_data = getattr(shared_state, 'MACRO_DATA', {}).get(s, {})
         tick = mt5.symbol_info_tick(s)
+        info = mt5.symbol_info(s)
         rsi  = tm.get_rsi(s)
         strat = ai.STRATEGY_DATA.get(s, {})
+        is_open = bool(info and tick and info.trade_mode == mt5.SYMBOL_TRADE_MODE_FULL and (time.time() - tick.time < 3600))
         symbols_data[s] = {
-            "price":        round(tick.ask, 5) if tick else 0,
-            "bid":          round(tick.bid, 5) if tick else 0,
-            "spread":       round((tick.ask - tick.bid) / mt5.symbol_info(s).point, 1) if tick and mt5.symbol_info(s) else 0,
-            "regime":       strat.get("regime", "N/A"),
-            "rsi":          round(rsi, 2) if rsi else 0,
-            "buy_targets":  strat.get("buy", []),
-            "sell_targets": strat.get("sell", []),
-            "threshold":    strat.get("threshold", 0),
-            "macro_bias":   macro_data.get("bias", "N/A"),
-            "allowed_dir":  macro_data.get("allowed_direction", "BOTH"),
-            "h4_trend":     macro_data.get("h4_trend", "N/A"),
-            "d1_trend":     macro_data.get("d1_trend", "N/A"),
+            "price":          round(tick.ask, 5) if tick else 0,
+            "bid":            round(tick.bid, 5) if tick else 0,
+            "spread":         round((tick.ask - tick.bid) / info.point, 1) if tick and info else 0,
+            "market_status":  "OPEN" if is_open else "CLOSED",
+            "regime":         strat.get("regime", "N/A"),
+            "rsi":            round(rsi, 2) if rsi else 0,
+            "buy_targets":    strat.get("buy", []),
+            "sell_targets":   strat.get("sell", []),
+            "threshold":      strat.get("threshold", 0),
+            "macro_bias":     macro_data.get("bias", "N/A"),
+            "allowed_dir":    macro_data.get("allowed_direction", "BOTH"),
+            "h4_trend":       macro_data.get("h4_trend", "N/A"),
+            "d1_trend":       macro_data.get("d1_trend", "N/A"),
         }
 
     # Cooldown state label
