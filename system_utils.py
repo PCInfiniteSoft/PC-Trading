@@ -1,5 +1,6 @@
 import json
 import sqlite3
+import time
 import shared_state
 import MetaTrader5 as mt5
 import trade_manager as tm
