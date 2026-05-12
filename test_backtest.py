@@ -168,3 +168,59 @@ def test_compute_analyst_score_buy_on_uptrend_scores_supertrend():
     h1 = make_ohlcv(100, trend="up", base=100.0)
     result = backtest.compute_analyst_score(m5, h1, "BUY", rsi_threshold=99.0)
     assert result["score"] >= 3
+
+
+def _make_guardian_call(symbol="BTCUSDm", direction="BUY", allowed="BOTH",
+                        last_sl_bar=None, current_bar=100, open_positions=None,
+                        fixed_spread=100, max_spread=8000):
+    import backtest
+    return backtest.check_guardian(
+        symbol=symbol, direction=direction,
+        allowed_direction=allowed,
+        last_sl_bar=last_sl_bar or {},
+        current_bar_idx=current_bar,
+        open_positions=open_positions or [],
+        fixed_spread=fixed_spread,
+        max_spread=max_spread,
+    )
+
+
+def test_guardian_passes_clean_state():
+    allowed, reason = _make_guardian_call()
+    assert allowed is True
+    assert reason == "OK"
+
+
+def test_guardian_blocks_cooldown():
+    """Gate 1: blocks entry 1 bar after SL hit."""
+    allowed, reason = _make_guardian_call(last_sl_bar={"BTCUSDm": 99}, current_bar=100)
+    assert allowed is False
+    assert reason == "COOLDOWN"
+
+
+def test_guardian_allows_after_cooldown():
+    """Gate 1: allows entry 2+ bars after SL hit."""
+    allowed, reason = _make_guardian_call(last_sl_bar={"BTCUSDm": 98}, current_bar=100)
+    assert allowed is True
+
+
+def test_guardian_blocks_wrong_direction():
+    """Gate 2: blocks BUY when DIRECTOR says SELL_ONLY."""
+    allowed, reason = _make_guardian_call(direction="BUY", allowed="SELL_ONLY")
+    assert allowed is False
+    assert reason == "DIRECTION"
+
+
+def test_guardian_blocks_excessive_spread():
+    """Gate 3: blocks when fixed_spread > max_spread."""
+    allowed, reason = _make_guardian_call(fixed_spread=10000, max_spread=8000)
+    assert allowed is False
+    assert reason == "SPREAD"
+
+
+def test_guardian_blocks_max_layers():
+    """Gate 4: blocks when symbol already has 3 open positions."""
+    positions = [{"symbol": "BTCUSDm"} for _ in range(3)]
+    allowed, reason = _make_guardian_call(open_positions=positions)
+    assert allowed is False
+    assert reason == "MAX_LAYERS"

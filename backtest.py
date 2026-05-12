@@ -163,6 +163,45 @@ def compute_analyst_score(
     return {"score": min(score, 12), "rsi": rsi}
 
 
+# ── MockGuardian ──────────────────────────────────────────────────
+
+def check_guardian(
+    symbol: str,
+    direction: str,
+    allowed_direction: str,
+    last_sl_bar: dict,
+    current_bar_idx: int,
+    open_positions: list,
+    fixed_spread: int,
+    max_spread: int,
+    max_layers: int = 3,
+) -> tuple:
+    """
+    Mock GUARDIAN: apply 4 sequential gates before allowing an entry.
+    Returns (allowed: bool, reason: str).
+    """
+    # Gate 1: cooldown — block entry if SL hit at current or previous bar
+    if current_bar_idx - last_sl_bar.get(symbol, -9999) <= 1:
+        return False, "COOLDOWN"
+
+    # Gate 2: direction vs DIRECTOR
+    if allowed_direction == "BUY_ONLY"  and direction == "SELL":
+        return False, "DIRECTION"
+    if allowed_direction == "SELL_ONLY" and direction == "BUY":
+        return False, "DIRECTION"
+
+    # Gate 3: spread
+    if fixed_spread > max_spread:
+        return False, "SPREAD"
+
+    # Gate 4: max layers per symbol
+    symbol_layers = sum(1 for p in open_positions if p["symbol"] == symbol)
+    if symbol_layers >= max_layers:
+        return False, "MAX_LAYERS"
+
+    return True, "OK"
+
+
 def parse_args():
     p = argparse.ArgumentParser(description="PC Trading backtest")
     p.add_argument("--months",  type=int, default=3, metavar="N",
