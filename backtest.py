@@ -441,6 +441,27 @@ def run_backtest(args) -> list:
             if analyst["score"] < threshold:
                 continue
 
+            # 4b. XAU quality filters
+            if "XAU" in symbol.upper():
+                # Block BUY_ONLY state — H4/D1 uptrend on gold produces poor BUY entries
+                if director_state["allowed_direction"] == "BUY_ONLY":
+                    continue
+                # Block dead-zone hours (Asian noise, low-volume)
+                thai_hour = (bar_time + pd.Timedelta(hours=7)).hour
+                if thai_hour in (2, 5, 6, 17, 22):
+                    continue
+
+            # 4c. BTC off-hours filter (Approach A+C)
+            # Off-hours (outside 07-17 Thai) require stricter RSI + higher score
+            if "BTC" in symbol.upper():
+                thai_hour = (bar_time + pd.Timedelta(hours=7)).hour
+                is_peak   = 7 <= thai_hour <= 17
+                if not is_peak:
+                    rsi_ok  = (direction == "BUY" and rsi_now <= 32) or \
+                              (direction == "SELL" and rsi_now >= 68)
+                    if not (rsi_ok and analyst["score"] >= 7):
+                        continue
+
             # 5. GUARDIAN
             allowed, _ = check_guardian(
                 symbol=symbol, direction=direction,
