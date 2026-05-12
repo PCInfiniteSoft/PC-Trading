@@ -18,10 +18,11 @@ from advanced_indicators import (
 from bot_config import ACCOUNT_ID, PWD, SRV, SYMBOLS_CONFIG
 
 TF_MAP = {
-    "M5": mt5.TIMEFRAME_M5,
-    "H1": mt5.TIMEFRAME_H1,
-    "H4": mt5.TIMEFRAME_H4,
-    "D1": mt5.TIMEFRAME_D1,
+    "M5":  mt5.TIMEFRAME_M5,
+    "M15": mt5.TIMEFRAME_M15,
+    "H1":  mt5.TIMEFRAME_H1,
+    "H4":  mt5.TIMEFRAME_H4,
+    "D1":  mt5.TIMEFRAME_D1,
 }
 
 
@@ -123,44 +124,46 @@ def _compute_scout(h1_slice: pd.DataFrame, direction: str) -> int:
 
 def compute_analyst_score(
     m5_slice: pd.DataFrame,
+    m15_slice: pd.DataFrame,
     h1_slice: pd.DataFrame,
     direction: str,
-    rsi_threshold: float,
 ) -> dict:
     """
-    Mock ANALYST: compute entry score 0-12 on a pre-fetched M5 slice.
+    Mock ANALYST: mirrors production ai_analysis scoring exactly.
 
-    Scoring (same as production):
-      Supertrend aligned  : +3
-      RSI at threshold    : +3
-      SMC zone proximity  : 0 / +2 / +4
-      SCOUT (MACD + EMA)  : 0 / +1 / +2
+    Scoring (matches ai_engine.py prompt):
+      H1  Supertrend aligned : +4  (production primary criterion)
+      SMC zone proximity      : 0 / +2 / +4  (from M15 data)
+      RSI < 40 (BUY) / > 60  : +2  (from M5 data, hardcoded thresholds)
+      SCOUT (MACD + EMA M15)  : 0 / +1 / +2
 
     Returns {"score": int, "rsi": float}.
     """
     score = 0
 
-    # Supertrend
-    calc = _calc_atr_chandelier(m5_slice.copy())
-    last = calc.iloc[-1]
-    if direction == "BUY"  and last["close"] > last["long_stop"]:
-        score += 3
-    elif direction == "SELL" and last["close"] < last["short_stop"]:
-        score += 3
+    # H1 Supertrend — +4 pts (production primary criterion)
+    calc_h1 = _calc_atr_chandelier(h1_slice.copy())
+    last_h1 = calc_h1.iloc[-1]
+    if direction == "BUY"  and last_h1["close"] > last_h1["long_stop"]:
+        score += 4
+    elif direction == "SELL" and last_h1["close"] < last_h1["short_stop"]:
+        score += 4
 
-    # RSI
+    # RSI from M5 — +2 pts, hardcoded 40/60 thresholds (matches prompt)
     rsi = calculate_rsi(m5_slice["close"].tolist())
-    if direction == "BUY"  and rsi <= rsi_threshold:
-        score += 3
-    elif direction == "SELL" and rsi >= rsi_threshold:
-        score += 3
+    if direction == "BUY"  and rsi <= 40:
+        score += 2
+    elif direction == "SELL" and rsi >= 60:
+        score += 2
 
-    # SMC Order Block
-    ob       = _find_smc_order_block(calc)
-    score   += score_zone_proximity(last["close"], ob, direction)
+    # SMC Order Block from M15 (matches production get_3_indicators default M15)
+    calc_m15 = _calc_atr_chandelier(m15_slice.copy())
+    ob        = _find_smc_order_block(calc_m15)
+    price     = float(m5_slice.iloc[-1]["close"])
+    score    += score_zone_proximity(price, ob, direction)
 
-    # SCOUT
-    score += _compute_scout(h1_slice, direction)
+    # SCOUT from M15 (matches production get_scout_score default M15)
+    score += _compute_scout(m15_slice, direction)
 
     return {"score": min(score, 12), "rsi": rsi}
 
@@ -300,11 +303,32 @@ def main():
 
 # ── Integration constants ─────────────────────────────────────────
 
-_RSI_BUY  = {1: 30, 2: 33, 3: 35, 4: 37, 5: 40}
-_RSI_SELL = {1: 70, 2: 67, 3: 65, 4: 63, 5: 60}
+# Matches ai_engine.py base_trigger table exactly
+_BASE_TRIGGER = {1: 8, 2: 7, 3: 6, 4: 5, 5: 4}
+
 _FIXED_SPREAD = {"BTCUSDm": 500, "XAUUSDm": 50}
 DIRECTOR_REFRESH_BARS = 48
 WARMUP_BARS = 100
+
+
+def _is_safe_bar_time(bar_time: pd.Timestamp, symbol: str) -> bool:
+    """
+    Replicate trade_manager.is_safe_trading_time for bar-by-bar simulation.
+    BTC: always True.  XAU: closed weekends + Monday before 08:00 Thai time.
+    """
+    if "BTC" in symbol.upper():
+        return True
+    import datetime
+    thai = bar_time + pd.Timedelta(hours=7)
+    wd   = thai.weekday()          # 0=Mon … 5=Sat, 6=Sun
+    t    = thai.time()
+    if wd == 5 and t > datetime.time(3, 30):
+        return False
+    if wd == 6:
+        return False
+    if wd == 0 and t < datetime.time(8, 0):
+        return False
+    return True
 
 
 def run_backtest(args) -> list:
@@ -320,6 +344,7 @@ def run_backtest(args) -> list:
         data         = load_data(symbol, args.months)
         sym_info     = load_symbol_info(symbol)
         m5_df        = data["M5"]
+        m15_df       = data["M15"]
         h1_df        = data["H1"]
         h4_df        = data["H4"]
         d1_df        = data["D1"]
@@ -331,9 +356,8 @@ def run_backtest(args) -> list:
         fixed_spread = _FIXED_SPREAD.get(symbol, 100)
         max_spread   = cfg["max_spread_override"]
 
-        rsi_buy   = _RSI_BUY[args.risk]  + cfg["rsi_buy_buffer"]
-        rsi_sell  = _RSI_SELL[args.risk] - cfg["rsi_sell_buffer"]
-        threshold = (args.risk + 5) + cfg["analyst_score_offset"]
+        # Mirrors ai_engine.py: base_trigger table + per-symbol offset
+        threshold = max(4, _BASE_TRIGGER[args.risk] + cfg["analyst_score_offset"])
 
         director_state = {"allowed_direction": "BOTH", "h4_trend": "N/A",
                           "last_refresh_bar": -DIRECTOR_REFRESH_BARS}
@@ -346,7 +370,11 @@ def run_backtest(args) -> list:
         for i in range(WARMUP_BARS, len(m5_df)):
             bar_time = m5_df.iloc[i]["time"]
 
-            # 1. Book closed positions
+            # 1. Session filter — skip closed-market bars (XAU only)
+            if not _is_safe_bar_time(bar_time, symbol):
+                continue
+
+            # 2. Book closed positions
             still_open = []
             for pos in open_positions:
                 if pos["exit_bar"] <= i:
@@ -357,7 +385,7 @@ def run_backtest(args) -> list:
                     still_open.append(pos)
             open_positions = still_open
 
-            # 2. DIRECTOR refresh every 48 bars
+            # 3. DIRECTOR refresh every 48 bars
             if i - director_state["last_refresh_bar"] >= DIRECTOR_REFRESH_BARS:
                 h4_slice = h4_df[h4_df["time"] <= bar_time].tail(50)
                 d1_slice = d1_df[d1_df["time"] <= bar_time].tail(50)
@@ -365,62 +393,63 @@ def run_backtest(args) -> list:
                     director_state.update(compute_director(h4_slice, d1_slice))
                 director_state["last_refresh_bar"] = i
 
-            # 3. ANALYST — try BUY then SELL
-            m5_slice = m5_df.iloc[max(0, i - 99): i + 1]
-            h1_slice = h1_df[h1_df["time"] <= bar_time].tail(100)
+            # 4. ANALYST — one direction per bar, chosen by RSI vs 50 (mirrors production)
+            m5_slice  = m5_df.iloc[max(0, i - 99): i + 1]
+            m15_slice = m15_df[m15_df["time"] <= bar_time].tail(100)
+            h1_slice  = h1_df[h1_df["time"]  <= bar_time].tail(100)
 
-            for direction in ("BUY", "SELL"):
-                rsi_thresh = rsi_buy if direction == "BUY" else rsi_sell
-                analyst = compute_analyst_score(m5_slice, h1_slice, direction, rsi_thresh)
+            rsi_now   = calculate_rsi(m5_slice["close"].tolist())
+            direction = "BUY" if rsi_now < 50 else "SELL"
 
-                if analyst["score"] < threshold:
-                    continue
+            analyst = compute_analyst_score(m5_slice, m15_slice, h1_slice, direction)
 
-                # 4. GUARDIAN
-                allowed, _ = check_guardian(
-                    symbol=symbol, direction=direction,
-                    allowed_direction=director_state["allowed_direction"],
-                    last_sl_bar=last_sl_bar, current_bar_idx=i,
-                    open_positions=open_positions,
-                    fixed_spread=fixed_spread, max_spread=max_spread,
-                )
-                if not allowed:
-                    continue
+            if analyst["score"] < threshold:
+                continue
 
-                # 5. Open virtual position
-                entry_price = float(m5_df.iloc[i]["close"])
-                if direction == "BUY":
-                    sl_price = entry_price - sl_distance
-                    tp_price = entry_price + tp_distance
-                else:
-                    sl_price = entry_price + sl_distance
-                    tp_price = entry_price - tp_distance
+            # 5. GUARDIAN
+            allowed, _ = check_guardian(
+                symbol=symbol, direction=direction,
+                allowed_direction=director_state["allowed_direction"],
+                last_sl_bar=last_sl_bar, current_bar_idx=i,
+                open_positions=open_positions,
+                fixed_spread=fixed_spread, max_spread=max_spread,
+            )
+            if not allowed:
+                continue
 
-                exit_info = simulate_position_exit(
-                    m5_df, i, direction, entry_price, sl_price, tp_price
-                )
-                net_p  = compute_net_profit(
-                    direction, entry_price, exit_info["exit_price"], lot, tick_value, point
-                )
-                layers = sum(1 for p in open_positions if p["symbol"] == symbol) + 1
+            # 6. Open virtual position
+            entry_price = float(m5_df.iloc[i]["close"])
+            if direction == "BUY":
+                sl_price = entry_price - sl_distance
+                tp_price = entry_price + tp_distance
+            else:
+                sl_price = entry_price + sl_distance
+                tp_price = entry_price - tp_distance
 
-                open_positions.append({
-                    "symbol":            symbol,
-                    "direction":         direction,
-                    "entry_bar":         i,
-                    "entry_time":        str(bar_time),
-                    "entry_price":       entry_price,
-                    "sl_price":          sl_price,
-                    "tp_price":          tp_price,
-                    "rsi_entry":         analyst["rsi"],
-                    "score":             analyst["score"],
-                    "h4_trend":          director_state.get("h4_trend", "N/A"),
-                    "allowed_direction": director_state["allowed_direction"],
-                    "layers":            layers,
-                    "net_profit":        net_p,
-                    **exit_info,
-                })
-                break  # one entry per bar per symbol
+            exit_info = simulate_position_exit(
+                m5_df, i, direction, entry_price, sl_price, tp_price
+            )
+            net_p  = compute_net_profit(
+                direction, entry_price, exit_info["exit_price"], lot, tick_value, point
+            )
+            layers = sum(1 for p in open_positions if p["symbol"] == symbol) + 1
+
+            open_positions.append({
+                "symbol":            symbol,
+                "direction":         direction,
+                "entry_bar":         i,
+                "entry_time":        str(bar_time),
+                "entry_price":       entry_price,
+                "sl_price":          sl_price,
+                "tp_price":          tp_price,
+                "rsi_entry":         analyst["rsi"],
+                "score":             analyst["score"],
+                "h4_trend":          director_state.get("h4_trend", "N/A"),
+                "allowed_direction": director_state["allowed_direction"],
+                "layers":            layers,
+                "net_profit":        net_p,
+                **exit_info,
+            })
 
         # Force-close any still-open positions at end of data
         last_bar = m5_df.iloc[-1]

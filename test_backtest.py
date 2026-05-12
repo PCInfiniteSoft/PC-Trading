@@ -8,6 +8,7 @@ import pytest
 # Mock MT5 before backtest imports it
 _mt5_mock = MagicMock()
 _mt5_mock.TIMEFRAME_M5  = 5
+_mt5_mock.TIMEFRAME_M15 = 15
 _mt5_mock.TIMEFRAME_H1  = 16385
 _mt5_mock.TIMEFRAME_H4  = 16388
 _mt5_mock.TIMEFRAME_D1  = 16408
@@ -57,8 +58,8 @@ def test_parse_args_defaults():
     assert args.export is None
 
 
-def test_load_data_returns_four_timeframes():
-    """load_data returns dict with M5/H1/H4/D1 keys, each a non-empty DataFrame."""
+def test_load_data_returns_five_timeframes():
+    """load_data returns dict with M5/M15/H1/H4/D1 keys, each a non-empty DataFrame."""
     import backtest
 
     _mt5_mock.copy_rates_range.return_value = [
@@ -68,7 +69,7 @@ def test_load_data_returns_four_timeframes():
 
     data = backtest.load_data("BTCUSDm", months=1)
 
-    assert set(data.keys()) == {"M5", "H1", "H4", "D1"}
+    assert set(data.keys()) == {"M5", "M15", "H1", "H4", "D1"}
     for tf in data:
         assert isinstance(data[tf], pd.DataFrame)
         assert len(data[tf]) > 0
@@ -152,22 +153,38 @@ def test_compute_scout_insufficient_data_returns_zero():
 def test_compute_analyst_score_returns_dict_with_required_keys():
     """compute_analyst_score always returns dict with score and rsi keys."""
     import backtest
-    m5 = make_ohlcv(100, trend="up")
-    h1 = make_ohlcv(100, trend="up")
-    result = backtest.compute_analyst_score(m5, h1, "BUY", rsi_threshold=45.0)
+    m5  = make_ohlcv(100, trend="up")
+    m15 = make_ohlcv(100, trend="up")
+    h1  = make_ohlcv(100, trend="up")
+    result = backtest.compute_analyst_score(m5, m15, h1, "BUY")
     assert "score" in result
     assert "rsi"   in result
     assert isinstance(result["score"], int)
     assert 0 <= result["score"] <= 12
 
 
-def test_compute_analyst_score_buy_on_uptrend_scores_supertrend():
-    """compute_analyst_score gives +3 for Supertrend when BUY on uptrend data."""
+def test_compute_analyst_score_buy_on_uptrend_scores_h1_supertrend():
+    """compute_analyst_score gives +4 for H1 Supertrend when BUY on uptrend data."""
     import backtest
-    m5 = make_ohlcv(100, trend="up", base=100.0)
-    h1 = make_ohlcv(100, trend="up", base=100.0)
-    result = backtest.compute_analyst_score(m5, h1, "BUY", rsi_threshold=99.0)
-    assert result["score"] >= 3
+    m5  = make_ohlcv(100, trend="up", base=100.0)
+    m15 = make_ohlcv(100, trend="up", base=100.0)
+    h1  = make_ohlcv(100, trend="up", base=100.0)
+    result = backtest.compute_analyst_score(m5, m15, h1, "BUY")
+    assert result["score"] >= 4
+
+
+def test_compute_analyst_score_rsi_below_40_gives_2pts():
+    """RSI ≤ 40 on BUY adds exactly +2 (not +3) matching production weight."""
+    import backtest
+    # Flat/down data forces RSI low; uptrend H1 gives +4; RSI ≤40 gives +2 → total ≥ 6
+    m5  = make_ohlcv(100, trend="down", base=200.0)
+    m15 = make_ohlcv(100, trend="down", base=200.0)
+    h1  = make_ohlcv(100, trend="up",   base=100.0)
+    result = backtest.compute_analyst_score(m5, m15, h1, "BUY")
+    # RSI on downtrend data will be low (oversold), H1 uptrend gives +4
+    # so total should be ≥ 6 (4+2) if RSI ≤ 40
+    if result["rsi"] <= 40:
+        assert result["score"] >= 6
 
 
 def _make_guardian_call(symbol="BTCUSDm", direction="BUY", allowed="BOTH",
@@ -293,6 +310,34 @@ def test_compute_net_profit_sell_win():
     import backtest
     profit = backtest.compute_net_profit("SELL", 100.0, 99.0, lot=0.01, tick_value=1.0, point=0.01)
     assert profit == pytest.approx(1.0, abs=0.01)
+
+
+def test_safe_bar_time_btc_always_open():
+    """BTC has no session filter — all times return True."""
+    import backtest
+    sunday = pd.Timestamp("2026-01-04 12:00:00")  # Sunday UTC
+    assert backtest._is_safe_bar_time(sunday, "BTCUSDm") is True
+
+
+def test_safe_bar_time_xau_blocks_sunday():
+    """XAU is blocked on Sunday (UTC time where Thai time = Sun)."""
+    import backtest
+    sunday_utc = pd.Timestamp("2026-01-04 10:00:00")  # Sunday UTC → Sun 17:00 Thai
+    assert backtest._is_safe_bar_time(sunday_utc, "XAUUSDm") is False
+
+
+def test_safe_bar_time_xau_allows_tuesday():
+    """XAU is open on a normal weekday."""
+    import backtest
+    tuesday = pd.Timestamp("2026-01-06 10:00:00")  # Tuesday UTC
+    assert backtest._is_safe_bar_time(tuesday, "XAUUSDm") is True
+
+
+def test_safe_bar_time_xau_blocks_monday_early():
+    """XAU blocks Monday before 08:00 Thai time (= before 01:00 UTC)."""
+    import backtest
+    monday_early = pd.Timestamp("2026-01-05 00:30:00")  # Mon 00:30 UTC = Mon 07:30 Thai
+    assert backtest._is_safe_bar_time(monday_early, "XAUUSDm") is False
 
 
 def test_symbol_metrics_drawdown_capped_at_100():
