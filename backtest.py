@@ -80,6 +80,89 @@ def compute_director(h4_slice: pd.DataFrame, d1_slice: pd.DataFrame) -> dict:
     return {"allowed_direction": direction, "h4_trend": h4_trend, "d1_trend": d1_trend}
 
 
+# ── MockAnalyst ───────────────────────────────────────────────────
+
+from advanced_indicators import calculate_rsi, _find_smc_order_block, score_zone_proximity
+
+
+def _compute_scout(h1_slice: pd.DataFrame, direction: str) -> int:
+    """
+    Replicate get_scout_score() logic on a pre-fetched H1 slice.
+    MACD crossover/alignment (+1) + EMA20 vs EMA50 alignment (+1) = 0-2 pts.
+    Requires at least 60 rows; returns 0 if insufficient data.
+    """
+    if len(h1_slice) < 60:
+        return 0
+
+    closes = h1_slice["close"]
+    ema12  = closes.ewm(span=12, adjust=False).mean()
+    ema26  = closes.ewm(span=26, adjust=False).mean()
+    macd   = ema12 - ema26
+    signal = macd.ewm(span=9, adjust=False).mean()
+
+    bullish_cross = (macd.iloc[-2] < signal.iloc[-2]) and (macd.iloc[-1] >= signal.iloc[-1])
+    bearish_cross = (macd.iloc[-2] > signal.iloc[-2]) and (macd.iloc[-1] <= signal.iloc[-1])
+
+    if bullish_cross or macd.iloc[-1] > signal.iloc[-1]:
+        macd_sig = "BULLISH"
+    elif bearish_cross or macd.iloc[-1] < signal.iloc[-1]:
+        macd_sig = "BEARISH"
+    else:
+        macd_sig = "NEUTRAL"
+
+    ema20 = closes.ewm(span=20, adjust=False).mean().iloc[-1]
+    ema50 = closes.ewm(span=50, adjust=False).mean().iloc[-1]
+
+    ema_aligned = (ema20 > ema50) if direction == "BUY" else (ema20 < ema50)
+    macd_match  = (macd_sig == "BULLISH") if direction == "BUY" else (macd_sig == "BEARISH")
+
+    return int(ema_aligned) + int(macd_match)
+
+
+def compute_analyst_score(
+    m5_slice: pd.DataFrame,
+    h1_slice: pd.DataFrame,
+    direction: str,
+    rsi_threshold: float,
+) -> dict:
+    """
+    Mock ANALYST: compute entry score 0-12 on a pre-fetched M5 slice.
+
+    Scoring (same as production):
+      Supertrend aligned  : +3
+      RSI at threshold    : +3
+      SMC zone proximity  : 0 / +2 / +4
+      SCOUT (MACD + EMA)  : 0 / +1 / +2
+
+    Returns {"score": int, "rsi": float}.
+    """
+    score = 0
+
+    # Supertrend
+    calc = _calc_atr_chandelier(m5_slice.copy())
+    last = calc.iloc[-1]
+    if direction == "BUY"  and last["close"] > last["long_stop"]:
+        score += 3
+    elif direction == "SELL" and last["close"] < last["short_stop"]:
+        score += 3
+
+    # RSI
+    rsi = calculate_rsi(m5_slice["close"].tolist())
+    if direction == "BUY"  and rsi <= rsi_threshold:
+        score += 3
+    elif direction == "SELL" and rsi >= rsi_threshold:
+        score += 3
+
+    # SMC Order Block
+    ob       = _find_smc_order_block(calc)
+    score   += score_zone_proximity(last["close"], ob, direction)
+
+    # SCOUT
+    score += _compute_scout(h1_slice, direction)
+
+    return {"score": min(score, 12), "rsi": rsi}
+
+
 def parse_args():
     p = argparse.ArgumentParser(description="PC Trading backtest")
     p.add_argument("--months",  type=int, default=3, metavar="N",

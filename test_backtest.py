@@ -132,3 +132,39 @@ def test_compute_director_mixed_gives_both():
     d1 = make_ohlcv(50, trend="down", base=200.0)
     result = backtest.compute_director(h4, d1)
     assert result["allowed_direction"] == "BOTH"
+
+
+def test_compute_scout_buy_with_aligned_ema_returns_positive():
+    """_compute_scout returns > 0 when EMA20 > EMA50 for BUY direction."""
+    import backtest
+    h1 = make_ohlcv(100, trend="up", base=100.0)
+    score = backtest._compute_scout(h1, "BUY")
+    assert score >= 1
+
+
+def test_compute_scout_insufficient_data_returns_zero():
+    """_compute_scout returns 0 when slice has fewer than 60 rows."""
+    import backtest
+    h1 = make_ohlcv(30, trend="up")
+    assert backtest._compute_scout(h1, "BUY") == 0
+
+
+def test_compute_analyst_score_returns_dict_with_required_keys():
+    """compute_analyst_score always returns dict with score and rsi keys."""
+    import backtest
+    m5 = make_ohlcv(100, trend="up")
+    h1 = make_ohlcv(100, trend="up")
+    result = backtest.compute_analyst_score(m5, h1, "BUY", rsi_threshold=45.0)
+    assert "score" in result
+    assert "rsi"   in result
+    assert isinstance(result["score"], int)
+    assert 0 <= result["score"] <= 12
+
+
+def test_compute_analyst_score_buy_on_uptrend_scores_supertrend():
+    """compute_analyst_score gives +3 for Supertrend when BUY on uptrend data."""
+    import backtest
+    m5 = make_ohlcv(100, trend="up", base=100.0)
+    h1 = make_ohlcv(100, trend="up", base=100.0)
+    result = backtest.compute_analyst_score(m5, h1, "BUY", rsi_threshold=99.0)
+    assert result["score"] >= 3
