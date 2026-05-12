@@ -296,8 +296,145 @@ def main():
         mt5.shutdown()
 
 
-def run_backtest(args):
-    raise NotImplementedError
+# ── Integration constants ─────────────────────────────────────────
+
+_RSI_BUY  = {1: 30, 2: 33, 3: 35, 4: 37, 5: 40}
+_RSI_SELL = {1: 70, 2: 67, 3: 65, 4: 63, 5: 60}
+_FIXED_SPREAD = {"BTCUSDm": 500, "XAUUSDm": 50}
+DIRECTOR_REFRESH_BARS = 48
+WARMUP_BARS = 100
+
+
+def run_backtest(args) -> list:
+    """
+    Main orchestrator: bar-by-bar simulation for each symbol.
+    Returns a flat list of closed trade dicts.
+    """
+    all_trades = []
+
+    for symbol in args.symbols:
+        cfg          = SYMBOLS_CONFIG[symbol]
+        print(f"[INFO] Loading data for {symbol} ...")
+        data         = load_data(symbol, args.months)
+        sym_info     = load_symbol_info(symbol)
+        m5_df        = data["M5"]
+        h1_df        = data["H1"]
+        h4_df        = data["H4"]
+        d1_df        = data["D1"]
+        point        = sym_info["point"]
+        tick_value   = sym_info["tick_value"]
+        lot          = cfg["lot"]
+        sl_distance  = cfg["sl_pts"] * point
+        tp_distance  = cfg["tp_pts"] * point
+        fixed_spread = _FIXED_SPREAD.get(symbol, 100)
+        max_spread   = cfg["max_spread_override"]
+
+        rsi_buy   = _RSI_BUY[args.risk]  + cfg["rsi_buy_buffer"]
+        rsi_sell  = _RSI_SELL[args.risk] - cfg["rsi_sell_buffer"]
+        threshold = (args.risk + 3) + cfg["analyst_score_offset"]
+
+        director_state = {"allowed_direction": "BOTH", "h4_trend": "N/A",
+                          "last_refresh_bar": -DIRECTOR_REFRESH_BARS}
+        last_sl_bar: dict = {}
+        open_positions: list = []
+
+        print(f"[INFO] Simulating {len(m5_df)} M5 bars for {symbol} "
+              f"(risk {args.risk}, threshold {threshold}) ...")
+
+        for i in range(WARMUP_BARS, len(m5_df)):
+            bar_time = m5_df.iloc[i]["time"]
+
+            # 1. Book closed positions
+            still_open = []
+            for pos in open_positions:
+                if pos["exit_bar"] <= i:
+                    if pos["result"] == "SL":
+                        last_sl_bar[symbol] = pos["exit_bar"]
+                    all_trades.append(pos)
+                else:
+                    still_open.append(pos)
+            open_positions = still_open
+
+            # 2. DIRECTOR refresh every 48 bars
+            if i - director_state["last_refresh_bar"] >= DIRECTOR_REFRESH_BARS:
+                h4_slice = h4_df[h4_df["time"] <= bar_time].tail(50)
+                d1_slice = d1_df[d1_df["time"] <= bar_time].tail(50)
+                if len(h4_slice) >= 22 and len(d1_slice) >= 22:
+                    director_state.update(compute_director(h4_slice, d1_slice))
+                director_state["last_refresh_bar"] = i
+
+            # 3. ANALYST — try BUY then SELL
+            m5_slice = m5_df.iloc[max(0, i - 99): i + 1]
+            h1_slice = h1_df[h1_df["time"] <= bar_time].tail(100)
+
+            for direction in ("BUY", "SELL"):
+                rsi_thresh = rsi_buy if direction == "BUY" else rsi_sell
+                analyst = compute_analyst_score(m5_slice, h1_slice, direction, rsi_thresh)
+
+                if analyst["score"] < threshold:
+                    continue
+
+                # 4. GUARDIAN
+                allowed, _ = check_guardian(
+                    symbol=symbol, direction=direction,
+                    allowed_direction=director_state["allowed_direction"],
+                    last_sl_bar=last_sl_bar, current_bar_idx=i,
+                    open_positions=open_positions,
+                    fixed_spread=fixed_spread, max_spread=max_spread,
+                )
+                if not allowed:
+                    continue
+
+                # 5. Open virtual position
+                entry_price = float(m5_df.iloc[i]["close"])
+                if direction == "BUY":
+                    sl_price = entry_price - sl_distance
+                    tp_price = entry_price + tp_distance
+                else:
+                    sl_price = entry_price + sl_distance
+                    tp_price = entry_price - tp_distance
+
+                exit_info = simulate_position_exit(
+                    m5_df, i, direction, entry_price, sl_price, tp_price
+                )
+                net_p  = compute_net_profit(
+                    direction, entry_price, exit_info["exit_price"], lot, tick_value, point
+                )
+                layers = sum(1 for p in open_positions if p["symbol"] == symbol) + 1
+
+                open_positions.append({
+                    "symbol":            symbol,
+                    "direction":         direction,
+                    "entry_bar":         i,
+                    "entry_time":        str(bar_time),
+                    "entry_price":       entry_price,
+                    "sl_price":          sl_price,
+                    "tp_price":          tp_price,
+                    "rsi_entry":         analyst["rsi"],
+                    "score":             analyst["score"],
+                    "h4_trend":          director_state.get("h4_trend", "N/A"),
+                    "allowed_direction": director_state["allowed_direction"],
+                    "layers":            layers,
+                    "net_profit":        net_p,
+                    **exit_info,
+                })
+                break  # one entry per bar per symbol
+
+        # Force-close any still-open positions at end of data
+        last_bar = m5_df.iloc[-1]
+        for pos in open_positions:
+            pos.setdefault("exit_bar",   len(m5_df) - 1)
+            pos.setdefault("exit_price", float(last_bar["close"]))
+            pos.setdefault("exit_time",  str(last_bar["time"]))
+            pos.setdefault("result",     "OPEN")
+            if "net_profit" not in pos:
+                pos["net_profit"] = compute_net_profit(
+                    pos["direction"], pos["entry_price"], pos["exit_price"],
+                    lot, tick_value, point
+                )
+            all_trades.append(pos)
+
+    return all_trades
 
 
 # ── ReportPrinter ─────────────────────────────────────────────────
