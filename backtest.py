@@ -1,13 +1,21 @@
 #!/usr/bin/env python3
 """PC Trading — Backtest (Approach A: bar-by-bar simulation)."""
 import argparse
+import csv
+import statistics
 import sys
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 import MetaTrader5 as mt5
 import pandas as pd
 
-from bot_config import SYMBOLS_CONFIG, ACCOUNT_ID, PWD, SRV
+from advanced_indicators import (
+    _calc_atr_chandelier,
+    _find_smc_order_block,
+    calculate_rsi,
+    score_zone_proximity,
+)
+from bot_config import ACCOUNT_ID, PWD, SRV, SYMBOLS_CONFIG
 
 TF_MAP = {
     "M5": mt5.TIMEFRAME_M5,
@@ -41,9 +49,6 @@ def load_symbol_info(symbol: str) -> dict:
 
 
 # ── MockDirector ──────────────────────────────────────────────────
-
-from advanced_indicators import _calc_atr_chandelier
-
 
 def _get_trend(df: pd.DataFrame) -> str:
     """
@@ -81,9 +86,6 @@ def compute_director(h4_slice: pd.DataFrame, d1_slice: pd.DataFrame) -> dict:
 
 
 # ── MockAnalyst ───────────────────────────────────────────────────
-
-from advanced_indicators import calculate_rsi, _find_smc_order_block, score_zone_proximity
-
 
 def _compute_scout(h1_slice: pd.DataFrame, direction: str) -> int:
     """
@@ -438,11 +440,6 @@ def run_backtest(args) -> list:
 
 
 # ── ReportPrinter ─────────────────────────────────────────────────
-
-import csv
-import statistics
-from datetime import date
-
 
 def _symbol_metrics(trades: list, symbol: str) -> dict:
     """Compute per-symbol stats from a list of trade dicts."""
