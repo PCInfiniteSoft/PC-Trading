@@ -293,3 +293,27 @@ def test_compute_net_profit_sell_win():
     import backtest
     profit = backtest.compute_net_profit("SELL", 100.0, 99.0, lot=0.01, tick_value=1.0, point=0.01)
     assert profit == pytest.approx(1.0, abs=0.01)
+
+
+def test_export_csv_writes_correct_columns(tmp_path):
+    """export_csv creates a file with the expected column headers."""
+    import backtest, csv
+    trades = [
+        {"symbol": "BTCUSDm", "direction": "BUY", "entry_time": "2026-01-01",
+         "entry_price": 95000.0, "exit_price": 95500.0, "net_profit": 5.0,
+         "result": "TP", "rsi_entry": 34.5, "score": 7,
+         "h4_trend": "UPTREND", "allowed_direction": "BUY_ONLY", "layers": 1,
+         "exit_time": "2026-01-02"},
+    ]
+    out = tmp_path / "test.csv"
+    backtest.export_csv(trades, str(out))
+    with open(out) as f:
+        reader = csv.DictReader(f)
+        rows = list(reader)
+    assert len(rows) == 1
+    assert rows[0]["symbol"] == "BTCUSDm"
+    assert rows[0]["net_profit"] == "5.0"
+    expected_cols = {"symbol", "direction", "entry_time", "entry_price",
+                     "exit_price", "net_profit", "result", "rsi_entry",
+                     "score", "h4_trend", "allowed_direction", "layers", "exit_time"}
+    assert expected_cols.issubset(set(rows[0].keys()))

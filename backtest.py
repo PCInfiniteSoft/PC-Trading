@@ -300,12 +300,128 @@ def run_backtest(args):
     raise NotImplementedError
 
 
-def print_report(trades, args):
-    raise NotImplementedError
+# ── ReportPrinter ─────────────────────────────────────────────────
+
+import csv
+import statistics
+from datetime import date
 
 
-def export_csv(trades, path):
-    raise NotImplementedError
+def _symbol_metrics(trades: list, symbol: str) -> dict:
+    """Compute per-symbol stats from a list of trade dicts."""
+    sym_trades = [t for t in trades if t["symbol"] == symbol]
+    if not sym_trades:
+        return None
+    profits = [t["net_profit"] for t in sym_trades]
+    wins    = [p for p in profits if p > 0]
+    losses  = [p for p in profits if p <= 0]
+    win_rate = len(wins) / len(profits) * 100 if profits else 0
+
+    equity = peak = max_dd = 0.0
+    for p in profits:
+        equity += p
+        if equity > peak:
+            peak = equity
+        dd = (peak - equity) / peak * 100 if peak > 0 else 0
+        if dd > max_dd:
+            max_dd = dd
+
+    max_consec = consec = 0
+    for p in profits:
+        if p <= 0:
+            consec += 1
+            max_consec = max(max_consec, consec)
+        else:
+            consec = 0
+
+    return {
+        "symbol":     symbol,
+        "total":      len(sym_trades),
+        "win_rate":   win_rate,
+        "net_pnl":    sum(profits),
+        "avg_win":    sum(wins)   / len(wins)   if wins   else 0,
+        "avg_loss":   sum(losses) / len(losses) if losses else 0,
+        "max_dd":     max_dd,
+        "max_consec": max_consec,
+    }
+
+
+def _sharpe(trades: list) -> float:
+    """Approximate annualised Sharpe ratio from daily P&L."""
+    if not trades:
+        return 0.0
+    by_day: dict = {}
+    for t in trades:
+        day = t["exit_time"][:10]
+        by_day[day] = by_day.get(day, 0.0) + t["net_profit"]
+    daily = list(by_day.values())
+    if len(daily) < 2:
+        return 0.0
+    mean  = statistics.mean(daily)
+    stdev = statistics.stdev(daily)
+    if stdev == 0:
+        return 0.0
+    return round(mean / stdev * (252 ** 0.5), 2)
+
+
+def print_report(trades: list, args) -> None:
+    """Print backtest summary to stdout."""
+    end_date   = date.today()
+    start_date = end_date - timedelta(days=args.months * 31)
+    sep = "=" * 60
+
+    print(f"\n{sep}")
+    print("  PC TRADING — BACKTEST REPORT")
+    print(f"  Period : {start_date} -> {end_date}  ({args.months} months)")
+    print(f"  Risk   : Level {args.risk}  |  Symbols: {', '.join(args.symbols)}")
+    print(sep)
+
+    for sym in args.symbols:
+        m = _symbol_metrics(trades, sym)
+        if m is None:
+            print(f"\n[ {sym} ]  No trades generated.")
+            continue
+        print(f"\n[ {sym} ]")
+        print(f"  Total Trades      : {m['total']}")
+        print(f"  Win Rate          : {m['win_rate']:.1f}%")
+        print(f"  Net P&L           : {m['net_pnl']:+.2f}")
+        print(f"  Avg Win / Loss    : {m['avg_win']:+.2f} / {m['avg_loss']:+.2f}")
+        print(f"  Max Drawdown      : {m['max_dd']:.1f}%")
+        print(f"  Max Consec. Loss  : {m['max_consec']}")
+
+    if len(args.symbols) > 1 and trades:
+        total   = len(trades)
+        wins    = sum(1 for t in trades if t["net_profit"] > 0)
+        net_pnl = sum(t["net_profit"] for t in trades)
+        sharpe  = _sharpe(trades)
+
+        eq = peak = max_dd = 0.0
+        for p in sorted(trades, key=lambda t: t["exit_time"]):
+            eq += p["net_profit"]
+            if eq > peak: peak = eq
+            dd = (peak - eq) / peak * 100 if peak > 0 else 0
+            if dd > max_dd: max_dd = dd
+
+        print(f"\n[ OVERALL ]")
+        print(f"  Total Trades      : {total}")
+        print(f"  Net P&L           : {net_pnl:+.2f}")
+        print(f"  Max Drawdown      : {max_dd:.1f}%")
+        print(f"  Sharpe Ratio      : {sharpe}")
+        print(f"  Win Rate          : {wins/total*100:.1f}%")
+
+    print(f"\n{sep}\n")
+
+
+def export_csv(trades: list, path: str) -> None:
+    """Export trade log to CSV."""
+    fields = ["symbol", "direction", "entry_time", "entry_price",
+              "exit_price", "net_profit", "result", "exit_time",
+              "rsi_entry", "score", "h4_trend", "allowed_direction", "layers"]
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(trades)
+    print(f"[INFO] Trade log exported to {path} ({len(trades)} rows)")
 
 
 if __name__ == "__main__":
