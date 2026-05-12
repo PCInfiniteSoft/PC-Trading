@@ -89,3 +89,46 @@ def test_load_symbol_info_returns_point_and_tick_value():
 
     assert info["point"] == 0.01
     assert info["tick_value"] == 1.0
+
+
+def test_get_trend_uptrend():
+    """_get_trend returns UPTREND when close consistently above long_stop."""
+    import backtest
+    df = make_ohlcv(50, trend="up", base=100.0)
+    assert backtest._get_trend(df) == "UPTREND"
+
+
+def test_get_trend_downtrend():
+    """_get_trend returns DOWNTREND when close consistently below short_stop."""
+    import backtest
+    df = make_ohlcv(50, trend="down", base=200.0)
+    assert backtest._get_trend(df) == "DOWNTREND"
+
+
+def test_compute_director_both_up_gives_buy_only():
+    """compute_director returns BUY_ONLY when H4 and D1 both UPTREND."""
+    import backtest
+    h4 = make_ohlcv(50, trend="up")
+    d1 = make_ohlcv(50, trend="up")
+    result = backtest.compute_director(h4, d1)
+    assert result["allowed_direction"] == "BUY_ONLY"
+    assert result["h4_trend"] == "UPTREND"
+    assert result["d1_trend"] == "UPTREND"
+
+
+def test_compute_director_both_down_gives_sell_only():
+    """compute_director returns SELL_ONLY when H4 and D1 both DOWNTREND."""
+    import backtest
+    h4 = make_ohlcv(50, trend="down", base=200.0)
+    d1 = make_ohlcv(50, trend="down", base=200.0)
+    result = backtest.compute_director(h4, d1)
+    assert result["allowed_direction"] == "SELL_ONLY"
+
+
+def test_compute_director_mixed_gives_both():
+    """compute_director returns BOTH when H4/D1 trends differ."""
+    import backtest
+    h4 = make_ohlcv(50, trend="up")
+    d1 = make_ohlcv(50, trend="down", base=200.0)
+    result = backtest.compute_director(h4, d1)
+    assert result["allowed_direction"] == "BOTH"

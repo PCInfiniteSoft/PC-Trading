@@ -40,6 +40,46 @@ def load_symbol_info(symbol: str) -> dict:
     return {"point": info.point, "tick_value": info.trade_tick_value}
 
 
+# ── MockDirector ──────────────────────────────────────────────────
+
+from advanced_indicators import _calc_atr_chandelier
+
+
+def _get_trend(df: pd.DataFrame) -> str:
+    """
+    Determine trend from Chandelier Exit direction.
+    close > long_stop  -> UPTREND
+    close < short_stop -> DOWNTREND
+    otherwise          -> SIDEWAY
+    Requires at least 22 rows (Chandelier default period).
+    """
+    calc = _calc_atr_chandelier(df.copy())
+    last = calc.iloc[-1]
+    if last["close"] > last["long_stop"]:
+        return "UPTREND"
+    if last["close"] < last["short_stop"]:
+        return "DOWNTREND"
+    return "SIDEWAY"
+
+
+def compute_director(h4_slice: pd.DataFrame, d1_slice: pd.DataFrame) -> dict:
+    """
+    Mock DIRECTOR: compute allowed_direction from H4 and D1 Chandelier trends.
+    Returns {"allowed_direction": str, "h4_trend": str, "d1_trend": str}.
+    """
+    h4_trend = _get_trend(h4_slice) if len(h4_slice) >= 22 else "SIDEWAY"
+    d1_trend = _get_trend(d1_slice) if len(d1_slice) >= 22 else "SIDEWAY"
+
+    if h4_trend == "UPTREND" and d1_trend == "UPTREND":
+        direction = "BUY_ONLY"
+    elif h4_trend == "DOWNTREND" and d1_trend == "DOWNTREND":
+        direction = "SELL_ONLY"
+    else:
+        direction = "BOTH"
+
+    return {"allowed_direction": direction, "h4_trend": h4_trend, "d1_trend": d1_trend}
+
+
 def parse_args():
     p = argparse.ArgumentParser(description="PC Trading backtest")
     p.add_argument("--months",  type=int, default=3, metavar="N",
