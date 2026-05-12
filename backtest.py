@@ -207,6 +207,43 @@ def check_guardian(
     return True, "OK"
 
 
+# ── Dynamic SL/TP ────────────────────────────────────────────────
+
+def compute_dynamic_sl_tp(
+    entry_price: float,
+    m5_slice: pd.DataFrame,
+    direction: str,
+    rr: float = 2.0,
+) -> tuple | None:
+    """
+    Chandelier Exit-based dynamic SL and TP.
+
+    SL = M5 Chandelier long_stop (BUY) or short_stop (SELL).
+    TP = entry ± sl_distance × rr  (default 2:1 R:R).
+
+    Returns (sl_price, tp_price, sl_distance) or None if SL is invalid
+    (price is already on the wrong side of the Chandelier stop).
+    """
+    calc = _calc_atr_chandelier(m5_slice.copy())
+    last = calc.iloc[-1]
+
+    if direction == "BUY":
+        sl_price    = float(last["long_stop"])
+        sl_distance = entry_price - sl_price
+        if sl_distance <= 0 or pd.isna(sl_price):
+            return None
+        tp_price = entry_price + sl_distance * rr
+
+    else:  # SELL
+        sl_price    = float(last["short_stop"])
+        sl_distance = sl_price - entry_price
+        if sl_distance <= 0 or pd.isna(sl_price):
+            return None
+        tp_price = entry_price - sl_distance * rr
+
+    return sl_price, tp_price, sl_distance
+
+
 # ── PositionSimulator ─────────────────────────────────────────────
 
 def simulate_position_exit(
@@ -351,8 +388,6 @@ def run_backtest(args) -> list:
         point        = sym_info["point"]
         tick_value   = sym_info["tick_value"]
         lot          = cfg["lot"]
-        sl_distance  = cfg["sl_pts"] * point
-        tp_distance  = cfg["tp_pts"] * point
         fixed_spread = _FIXED_SPREAD.get(symbol, 100)
         max_spread   = cfg["max_spread_override"]
 
@@ -419,12 +454,10 @@ def run_backtest(args) -> list:
 
             # 6. Open virtual position
             entry_price = float(m5_df.iloc[i]["close"])
-            if direction == "BUY":
-                sl_price = entry_price - sl_distance
-                tp_price = entry_price + tp_distance
-            else:
-                sl_price = entry_price + sl_distance
-                tp_price = entry_price - tp_distance
+            sl_tp = compute_dynamic_sl_tp(entry_price, m5_slice, direction)
+            if sl_tp is None:
+                continue
+            sl_price, tp_price, sl_distance = sl_tp
 
             exit_info = simulate_position_exit(
                 m5_df, i, direction, entry_price, sl_price, tp_price

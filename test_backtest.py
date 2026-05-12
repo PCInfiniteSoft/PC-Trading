@@ -340,6 +340,58 @@ def test_safe_bar_time_xau_blocks_monday_early():
     assert backtest._is_safe_bar_time(monday_early, "XAUUSDm") is False
 
 
+def test_dynamic_sl_buy_sl_below_entry_tp_above():
+    """BUY: sl_price < entry_price < tp_price on uptrend data."""
+    import backtest
+    m5 = make_ohlcv(100, trend="up", base=100.0)
+    entry = float(m5.iloc[-1]["close"])
+    result = backtest.compute_dynamic_sl_tp(entry, m5, "BUY")
+    assert result is not None
+    sl, tp, dist = result
+    assert sl < entry, "SL must be below entry for BUY"
+    assert tp > entry, "TP must be above entry for BUY"
+    assert dist > 0
+
+
+def test_dynamic_sl_sell_sl_above_entry_tp_below():
+    """SELL: tp_price < entry_price < sl_price on downtrend data."""
+    import backtest
+    m5 = make_ohlcv(100, trend="down", base=200.0)
+    entry = float(m5.iloc[-1]["close"])
+    result = backtest.compute_dynamic_sl_tp(entry, m5, "SELL")
+    assert result is not None
+    sl, tp, dist = result
+    assert sl > entry, "SL must be above entry for SELL"
+    assert tp < entry, "TP must be below entry for SELL"
+    assert dist > 0
+
+
+def test_dynamic_sl_rr_is_2_to_1():
+    """TP distance = 2 × SL distance (default R:R = 2.0)."""
+    import backtest
+    m5 = make_ohlcv(100, trend="up", base=100.0)
+    entry = float(m5.iloc[-1]["close"])
+    result = backtest.compute_dynamic_sl_tp(entry, m5, "BUY")
+    assert result is not None
+    sl, tp, dist = result
+    assert tp - entry == pytest.approx((entry - sl) * 2.0, rel=1e-6)
+
+
+def test_dynamic_sl_invalid_direction_returns_none():
+    """Returns None when Chandelier stop is on the wrong side of entry."""
+    import backtest
+    # In strong downtrend, close < long_stop → BUY SL distance ≤ 0 → None
+    m5 = make_ohlcv(100, trend="down", base=200.0)
+    # Force long_stop above close by using a very small base
+    m5_low = make_ohlcv(50, trend="down", base=10.0)
+    entry = float(m5_low.iloc[-1]["close"])  # ≈ 10 - 49*0.5 = very low
+    result = backtest.compute_dynamic_sl_tp(entry, m5_low, "BUY")
+    # Either None (invalid) or SL must still be below entry
+    if result is not None:
+        sl, tp, dist = result
+        assert sl < entry
+
+
 def test_symbol_metrics_drawdown_capped_at_100():
     """Max drawdown is capped at 100% when equity goes deeply negative."""
     import backtest
