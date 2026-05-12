@@ -55,3 +55,37 @@ def test_parse_args_defaults():
     assert args.months == 3
     assert args.risk == 3
     assert args.export is None
+
+
+def test_load_data_returns_four_timeframes():
+    """load_data returns dict with M5/H1/H4/D1 keys, each a non-empty DataFrame."""
+    import backtest
+
+    _mt5_mock.copy_rates_range.return_value = [
+        {"time": i, "open": 1.0, "high": 1.1, "low": 0.9, "close": 1.05, "tick_volume": 100}
+        for i in range(200)
+    ]
+
+    data = backtest.load_data("BTCUSDm", months=1)
+
+    assert set(data.keys()) == {"M5", "H1", "H4", "D1"}
+    for tf in data:
+        assert isinstance(data[tf], pd.DataFrame)
+        assert len(data[tf]) > 0
+        assert "close" in data[tf].columns
+        assert "time" in data[tf].columns
+
+
+def test_load_symbol_info_returns_point_and_tick_value():
+    """load_symbol_info returns dict with 'point' and 'tick_value' keys."""
+    import backtest
+
+    mock_info = MagicMock()
+    mock_info.point = 0.01
+    mock_info.trade_tick_value = 1.0
+    _mt5_mock.symbol_info.return_value = mock_info
+
+    info = backtest.load_symbol_info("BTCUSDm")
+
+    assert info["point"] == 0.01
+    assert info["tick_value"] == 1.0

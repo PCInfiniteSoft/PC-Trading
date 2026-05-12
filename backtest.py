@@ -2,8 +2,42 @@
 """PC Trading — Backtest (Approach A: bar-by-bar simulation)."""
 import argparse
 import sys
+from datetime import datetime, timedelta
+
 import MetaTrader5 as mt5
+import pandas as pd
+
 from bot_config import SYMBOLS_CONFIG, ACCOUNT_ID, PWD, SRV
+
+TF_MAP = {
+    "M5": mt5.TIMEFRAME_M5,
+    "H1": mt5.TIMEFRAME_H1,
+    "H4": mt5.TIMEFRAME_H4,
+    "D1": mt5.TIMEFRAME_D1,
+}
+
+
+def load_data(symbol: str, months: int) -> dict:
+    """Fetch OHLCV candles for all needed timeframes. Returns {tf_name: DataFrame}."""
+    end   = datetime.now()
+    start = end - timedelta(days=months * 31)
+    result = {}
+    for tf_name, tf_const in TF_MAP.items():
+        rates = mt5.copy_rates_range(symbol, tf_const, start, end)
+        if rates is None or len(rates) == 0:
+            raise RuntimeError(f"No data for {symbol} {tf_name} — is MT5 connected and symbol active?")
+        df = pd.DataFrame(rates)
+        df["time"] = pd.to_datetime(df["time"], unit="s")
+        result[tf_name] = df[["time", "open", "high", "low", "close", "tick_volume"]].reset_index(drop=True)
+    return result
+
+
+def load_symbol_info(symbol: str) -> dict:
+    """Return point size and tick value for a symbol."""
+    info = mt5.symbol_info(symbol)
+    if info is None:
+        raise RuntimeError(f"Symbol info not found for {symbol}")
+    return {"point": info.point, "tick_value": info.trade_tick_value}
 
 
 def parse_args():
