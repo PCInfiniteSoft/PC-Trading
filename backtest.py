@@ -333,7 +333,7 @@ def run_backtest(args) -> list:
 
         rsi_buy   = _RSI_BUY[args.risk]  + cfg["rsi_buy_buffer"]
         rsi_sell  = _RSI_SELL[args.risk] - cfg["rsi_sell_buffer"]
-        threshold = (args.risk + 3) + cfg["analyst_score_offset"]
+        threshold = (args.risk + 5) + cfg["analyst_score_offset"]
 
         director_state = {"allowed_direction": "BOTH", "h4_trend": "N/A",
                           "last_refresh_bar": -DIRECTOR_REFRESH_BARS}
@@ -456,7 +456,7 @@ def _symbol_metrics(trades: list, symbol: str) -> dict:
         equity += p
         if equity > peak:
             peak = equity
-        dd = (peak - equity) / peak * 100 if peak > 0 else 0
+        dd = min((peak - equity) / peak * 100, 100.0) if peak > 0 else 0
         if dd > max_dd:
             max_dd = dd
 
@@ -533,7 +533,7 @@ def print_report(trades: list, args) -> None:
         for p in sorted(trades, key=lambda t: t["exit_time"]):
             eq += p["net_profit"]
             if eq > peak: peak = eq
-            dd = (peak - eq) / peak * 100 if peak > 0 else 0
+            dd = min((peak - eq) / peak * 100, 100.0) if peak > 0 else 0
             if dd > max_dd: max_dd = dd
 
         print(f"\n[ OVERALL ]")

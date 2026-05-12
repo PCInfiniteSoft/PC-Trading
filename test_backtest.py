@@ -295,6 +295,26 @@ def test_compute_net_profit_sell_win():
     assert profit == pytest.approx(1.0, abs=0.01)
 
 
+def test_symbol_metrics_drawdown_capped_at_100():
+    """Max drawdown is capped at 100% when equity goes deeply negative."""
+    import backtest
+    # Small win then many losses — equity goes far negative
+    trades = [{"symbol": "TEST", "net_profit": p}
+              for p in [1.0] + [-5.0] * 20]
+    m = backtest._symbol_metrics(trades, "TEST")
+    assert m["max_dd"] <= 100.0
+
+
+def test_symbol_metrics_drawdown_normal():
+    """Normal drawdown (equity stays positive) is calculated correctly."""
+    import backtest
+    # +10, -3, +5, -2 → peak=10, trough=7 → dd=30%
+    trades = [{"symbol": "TEST", "net_profit": p}
+              for p in [10.0, -3.0, 5.0, -2.0]]
+    m = backtest._symbol_metrics(trades, "TEST")
+    assert m["max_dd"] == pytest.approx(30.0, abs=1.0)
+
+
 def test_export_csv_writes_correct_columns(tmp_path):
     """export_csv creates a file with the expected column headers."""
     import backtest, csv
