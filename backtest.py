@@ -202,6 +202,67 @@ def check_guardian(
     return True, "OK"
 
 
+# ── PositionSimulator ─────────────────────────────────────────────
+
+def simulate_position_exit(
+    m5_df: pd.DataFrame,
+    entry_bar_idx: int,
+    direction: str,
+    entry_price: float,
+    sl_price: float,
+    tp_price: float,
+) -> dict:
+    """
+    Scan forward from entry_bar_idx+1 to find SL or TP hit.
+    If both hit in the same candle, SL wins (conservative).
+    If price never hits either, force-close at last bar's close.
+
+    Returns {"exit_bar": int, "exit_price": float, "result": str, "exit_time": str}.
+    """
+    for i in range(entry_bar_idx + 1, len(m5_df)):
+        row = m5_df.iloc[i]
+        if direction == "BUY":
+            tp_hit = row["high"] >= tp_price
+            sl_hit = row["low"]  <= sl_price
+        else:
+            tp_hit = row["low"]  <= tp_price
+            sl_hit = row["high"] >= sl_price
+
+        if sl_hit and tp_hit:
+            return {"exit_bar": i, "exit_price": sl_price,
+                    "result": "SL", "exit_time": str(row["time"])}
+        if sl_hit:
+            return {"exit_bar": i, "exit_price": sl_price,
+                    "result": "SL", "exit_time": str(row["time"])}
+        if tp_hit:
+            return {"exit_bar": i, "exit_price": tp_price,
+                    "result": "TP", "exit_time": str(row["time"])}
+
+    last = m5_df.iloc[-1]
+    return {"exit_bar": len(m5_df) - 1, "exit_price": float(last["close"]),
+            "result": "OPEN", "exit_time": str(last["time"])}
+
+
+def compute_net_profit(
+    direction: str,
+    entry_price: float,
+    exit_price: float,
+    lot: float,
+    tick_value: float,
+    point: float,
+) -> float:
+    """
+    Net profit in account currency.
+    Formula: (price_diff_in_points) x tick_value x lot
+    tick_value is per 1 point per 1 lot (from mt5.symbol_info.trade_tick_value).
+    """
+    price_diff = exit_price - entry_price
+    if direction == "SELL":
+        price_diff = -price_diff
+    points_gained = price_diff / point
+    return round(points_gained * tick_value * lot, 2)
+
+
 def parse_args():
     p = argparse.ArgumentParser(description="PC Trading backtest")
     p.add_argument("--months",  type=int, default=3, metavar="N",

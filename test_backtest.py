@@ -224,3 +224,72 @@ def test_guardian_blocks_max_layers():
     allowed, reason = _make_guardian_call(open_positions=positions)
     assert allowed is False
     assert reason == "MAX_LAYERS"
+
+
+def make_price_df(prices: list) -> pd.DataFrame:
+    """Build a minimal OHLCV df from a list of close prices (high=close+0.5, low=close-0.5)."""
+    rows = []
+    for i, c in enumerate(prices):
+        rows.append({
+            "time":        pd.Timestamp("2026-01-01") + pd.Timedelta(minutes=5 * i),
+            "open":        c,
+            "high":        c + 0.5,
+            "low":         c - 0.5,
+            "close":       c,
+            "tick_volume": 1,
+        })
+    return pd.DataFrame(rows)
+
+
+def test_simulate_tp_hit_buy():
+    """BUY position exits at TP when price rises above tp_price."""
+    import backtest
+    df = make_price_df([100, 100.5, 101.5, 103.5])
+    result = backtest.simulate_position_exit(df, 0, "BUY", 100.0, sl_price=98.0, tp_price=103.0)
+    assert result["result"] == "TP"
+    assert result["exit_price"] == 103.0
+
+
+def test_simulate_sl_hit_buy():
+    """BUY position exits at SL when price drops below sl_price."""
+    import backtest
+    df = make_price_df([100, 99.5, 98.5, 97.0])
+    result = backtest.simulate_position_exit(df, 0, "BUY", 100.0, sl_price=98.0, tp_price=103.0)
+    assert result["result"] == "SL"
+    assert result["exit_price"] == 98.0
+
+
+def test_simulate_sl_wins_when_both_hit_same_candle():
+    """When both SL and TP are hit in the same candle, SL wins (conservative)."""
+    import backtest
+    rows = [
+        {"time": pd.Timestamp("2026-01-01"), "open": 100, "high": 100.5, "low": 99.5, "close": 100, "tick_volume": 1},
+        {"time": pd.Timestamp("2026-01-01") + pd.Timedelta(minutes=5),
+         "open": 100, "high": 104.0, "low": 97.0, "close": 100, "tick_volume": 1},
+    ]
+    df = pd.DataFrame(rows)
+    result = backtest.simulate_position_exit(df, 0, "BUY", 100.0, sl_price=98.0, tp_price=103.0)
+    assert result["result"] == "SL"
+
+
+def test_simulate_force_close_at_end():
+    """Position not closed by end of data is force-closed at last bar's close."""
+    import backtest
+    df = make_price_df([100, 100.2, 100.4, 100.6])
+    result = backtest.simulate_position_exit(df, 0, "BUY", 100.0, sl_price=95.0, tp_price=110.0)
+    assert result["result"] == "OPEN"
+    assert result["exit_price"] == 100.6
+
+
+def test_compute_net_profit_buy_win():
+    """BUY profit = positive when exit > entry."""
+    import backtest
+    profit = backtest.compute_net_profit("BUY", 100.0, 101.0, lot=0.01, tick_value=1.0, point=0.01)
+    assert profit == pytest.approx(1.0, abs=0.01)
+
+
+def test_compute_net_profit_sell_win():
+    """SELL profit = positive when exit < entry."""
+    import backtest
+    profit = backtest.compute_net_profit("SELL", 100.0, 99.0, lot=0.01, tick_value=1.0, point=0.01)
+    assert profit == pytest.approx(1.0, abs=0.01)
