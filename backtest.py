@@ -317,8 +317,6 @@ def parse_args():
                    help="Export trade log to CSV")
     p.add_argument("--capital", type=float, default=1000.0, metavar="USD",
                    help="Starting capital in USD, split equally across symbols (default: 1000)")
-    p.add_argument("--lot",     type=float, default=None, metavar="SIZE",
-                   help="Override lot size for all symbols (e.g. 0.05)")
     return p.parse_args()
 
 
@@ -396,7 +394,7 @@ def run_backtest(args) -> list:
         d1_df        = data["D1"]
         point        = sym_info["point"]
         tick_value   = sym_info["tick_value"]
-        lot          = args.lot if args.lot is not None else cfg["lot"]
+        lot          = cfg["lot"]
         fixed_spread = _FIXED_SPREAD.get(symbol, 100)
         max_spread   = cfg["max_spread_override"]
 
@@ -409,7 +407,6 @@ def run_backtest(args) -> list:
         open_positions: list = []
 
         # Risk management state
-        lot_scale    = lot / 0.01  # scale daily limits relative to base lot=0.01
         sym_equity   = args.capital / len(args.symbols)
         sym_peak     = sym_equity
         cb_resume    = None   # date when circuit breaker lifts (None = not triggered)
@@ -447,7 +444,7 @@ def run_backtest(args) -> list:
                     # Daily loss limit
                     exit_date = pd.Timestamp(pos["exit_time"]).date()
                     daily_pnl[exit_date] = daily_pnl.get(exit_date, 0.0) + pos["net_profit"]
-                    if daily_pnl[exit_date] <= _DAILY_LOSS_LIMIT.get(symbol, float("-inf")) * lot_scale:
+                    if daily_pnl[exit_date] <= _DAILY_LOSS_LIMIT.get(symbol, float("-inf")):
                         daily_paused.add(exit_date)
                 else:
                     still_open.append(pos)
@@ -477,21 +474,8 @@ def run_backtest(args) -> list:
             m15_slice = m15_df[m15_df["time"] <= bar_time].tail(100)
             h1_slice  = h1_df[h1_df["time"]  <= bar_time].tail(100)
 
-            rsi_now = calculate_rsi(m5_slice["close"].tolist())
-            if rsi_now <= 40:
-                direction = "BUY"
-            elif rsi_now >= 60:
-                direction = "SELL"
-            else:
-                continue  # RSI in neutral zone — no trade
-
-            # H1 Supertrend hard filter — direction must align before scoring
-            h1_calc  = _calc_atr_chandelier(h1_slice.copy())
-            last_h1  = h1_calc.iloc[-1]
-            if direction == "BUY"  and float(last_h1["close"]) <= float(last_h1["long_stop"]):
-                continue
-            if direction == "SELL" and float(last_h1["close"]) >= float(last_h1["short_stop"]):
-                continue
+            rsi_now   = calculate_rsi(m5_slice["close"].tolist())
+            direction = "BUY" if rsi_now < 50 else "SELL"
 
             analyst = compute_analyst_score(m5_slice, m15_slice, h1_slice, direction)
 
