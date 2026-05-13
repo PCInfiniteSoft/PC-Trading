@@ -315,6 +315,8 @@ def parse_args():
                    help="Risk level 1-5 (default: 3)")
     p.add_argument("--export",  type=str, default=None, metavar="PATH",
                    help="Export trade log to CSV")
+    p.add_argument("--capital", type=float, default=1000.0, metavar="USD",
+                   help="Starting capital in USD, split equally across symbols (default: 1000)")
     return p.parse_args()
 
 
@@ -346,6 +348,11 @@ _BASE_TRIGGER = {1: 8, 2: 7, 3: 6, 4: 5, 5: 4}
 _FIXED_SPREAD = {"BTCUSDm": 500, "XAUUSDm": 50}
 DIRECTOR_REFRESH_BARS = 48
 WARMUP_BARS = 100
+
+# Risk management constants
+_DAILY_LOSS_LIMIT    = {"BTCUSDm": -8.0, "XAUUSDm": -20.0}
+_CIRCUIT_BREAKER_PCT  = 20.0  # halt if equity drops this % below running peak
+_CIRCUIT_BREAKER_DAYS = 5     # calendar days to stay halted before resuming
 
 
 def _is_safe_bar_time(bar_time: pd.Timestamp, symbol: str) -> bool:
@@ -399,6 +406,13 @@ def run_backtest(args) -> list:
         last_sl_bar: dict = {}
         open_positions: list = []
 
+        # Risk management state
+        sym_equity   = args.capital / len(args.symbols)
+        sym_peak     = sym_equity
+        cb_resume    = None   # date when circuit breaker lifts (None = not triggered)
+        daily_pnl: dict = {}  # {date: cumulative closed P&L that day}
+        daily_paused: set = set()  # calendar dates where daily limit was hit
+
         print(f"[INFO] Simulating {len(m5_df)} M5 bars for {symbol} "
               f"(risk {args.risk}, threshold {threshold}) ...")
 
@@ -409,16 +423,43 @@ def run_backtest(args) -> list:
             if not _is_safe_bar_time(bar_time, symbol):
                 continue
 
-            # 2. Book closed positions
+            # 2. Book closed positions + update risk management state
             still_open = []
             for pos in open_positions:
                 if pos["exit_bar"] <= i:
                     if pos["result"] == "SL":
                         last_sl_bar[symbol] = pos["exit_bar"]
                     all_trades.append(pos)
+
+                    sym_equity += pos["net_profit"]
+                    if sym_equity > sym_peak:
+                        sym_peak = sym_equity
+
+                    # Circuit breaker: halt if equity drops >= 20% from peak
+                    if sym_peak > 0 and cb_resume is None:
+                        dd_pct = (sym_peak - sym_equity) / sym_peak * 100
+                        if dd_pct >= _CIRCUIT_BREAKER_PCT:
+                            cb_resume = (bar_time + pd.Timedelta(days=_CIRCUIT_BREAKER_DAYS)).date()
+
+                    # Daily loss limit
+                    exit_date = pd.Timestamp(pos["exit_time"]).date()
+                    daily_pnl[exit_date] = daily_pnl.get(exit_date, 0.0) + pos["net_profit"]
+                    if daily_pnl[exit_date] <= _DAILY_LOSS_LIMIT.get(symbol, float("-inf")):
+                        daily_paused.add(exit_date)
                 else:
                     still_open.append(pos)
             open_positions = still_open
+
+            # 2b. Risk management halts — skip new entries if limit hit
+            today = bar_time.date()
+            if today in daily_paused:
+                continue
+            if cb_resume:
+                if today < cb_resume:
+                    continue
+                # Halt period over: resume and reset peak so % is measured from here
+                cb_resume = None
+                sym_peak  = sym_equity
 
             # 3. DIRECTOR refresh every 48 bars
             if i - director_state["last_refresh_bar"] >= DIRECTOR_REFRESH_BARS:

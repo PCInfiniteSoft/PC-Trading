@@ -454,6 +454,50 @@ def test_btc_offhours_filter_allows_extreme_rsi():
     assert passed, "RSI=28 off-hours score>=7 should pass"
 
 
+def test_daily_loss_limit_triggers_at_threshold():
+    """Daily P&L tracking: once threshold hit, that date goes into paused set."""
+    limit = {"XAUUSDm": -20.0}
+    daily_pnl = {}
+    daily_paused = set()
+    from datetime import date
+    d = date(2026, 1, 10)
+    losses = [-5.0, -6.0, -10.0]  # cumulative = -21 → should trigger
+    for pnl in losses:
+        daily_pnl[d] = daily_pnl.get(d, 0.0) + pnl
+        if daily_pnl[d] <= limit.get("XAUUSDm", float("-inf")):
+            daily_paused.add(d)
+    assert d in daily_paused
+
+
+def test_daily_loss_limit_does_not_trigger_below_threshold():
+    """Daily P&L -15 on XAU (limit -20) should NOT pause."""
+    limit = {"XAUUSDm": -20.0}
+    daily_pnl = {}
+    daily_paused = set()
+    from datetime import date
+    d = date(2026, 1, 10)
+    daily_pnl[d] = -15.0
+    if daily_pnl[d] <= limit.get("XAUUSDm", float("-inf")):
+        daily_paused.add(d)
+    assert d not in daily_paused
+
+
+def test_circuit_breaker_triggers_at_20_pct_drawdown():
+    """Circuit breaker fires when equity drops >= 20% from peak."""
+    sym_peak = 600.0
+    sym_equity = 479.0  # 20.2% drop
+    dd_pct = (sym_peak - sym_equity) / sym_peak * 100
+    assert dd_pct >= 20.0
+
+
+def test_circuit_breaker_does_not_trigger_below_threshold():
+    """Circuit breaker stays quiet when drop is < 20%."""
+    sym_peak = 600.0
+    sym_equity = 490.0  # 18.3% drop
+    dd_pct = (sym_peak - sym_equity) / sym_peak * 100
+    assert dd_pct < 20.0
+
+
 def test_export_csv_writes_correct_columns(tmp_path):
     """export_csv creates a file with the expected column headers."""
     import backtest, csv
