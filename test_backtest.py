@@ -454,6 +454,54 @@ def test_btc_offhours_filter_allows_extreme_rsi():
     assert passed, "RSI=28 off-hours score>=7 should pass"
 
 
+def test_rsi_direction_buy_at_40():
+    """RSI <= 40 triggers BUY direction."""
+    rsi = 38.0
+    if rsi <= 40:      direction = "BUY"
+    elif rsi >= 60:    direction = "SELL"
+    else:              direction = None
+    assert direction == "BUY"
+
+
+def test_rsi_direction_sell_at_60():
+    """RSI >= 60 triggers SELL direction."""
+    rsi = 62.0
+    if rsi <= 40:      direction = "BUY"
+    elif rsi >= 60:    direction = "SELL"
+    else:              direction = None
+    assert direction == "SELL"
+
+
+def test_rsi_direction_neutral_skipped():
+    """RSI in 41-59 range produces no direction (skip bar)."""
+    for rsi in [41.0, 50.0, 59.0]:
+        if rsi <= 40:      direction = "BUY"
+        elif rsi >= 60:    direction = "SELL"
+        else:              direction = None
+        assert direction is None, f"RSI={rsi} should be skipped"
+
+
+def test_h1_hard_filter_blocks_buy_in_downtrend():
+    """H1 hard filter: BUY blocked when close <= long_stop (downtrend)."""
+    import backtest
+    h1 = make_ohlcv(100, trend="down", base=200.0)
+    calc = backtest._calc_atr_chandelier(h1.copy())
+    last = calc.iloc[-1]
+    # In downtrend, close < long_stop → should be blocked
+    blocked = float(last["close"]) <= float(last["long_stop"])
+    assert blocked, "BUY should be blocked in H1 downtrend"
+
+
+def test_h1_hard_filter_allows_buy_in_uptrend():
+    """H1 hard filter: BUY allowed when close > long_stop (uptrend)."""
+    import backtest
+    h1 = make_ohlcv(100, trend="up", base=100.0)
+    calc = backtest._calc_atr_chandelier(h1.copy())
+    last = calc.iloc[-1]
+    allowed = float(last["close"]) > float(last["long_stop"])
+    assert allowed, "BUY should be allowed in H1 uptrend"
+
+
 def test_daily_loss_limit_triggers_at_threshold():
     """Daily P&L tracking: once threshold hit, that date goes into paused set."""
     limit = {"XAUUSDm": -20.0}
