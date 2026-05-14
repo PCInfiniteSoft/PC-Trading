@@ -529,6 +529,9 @@ def run_backtest(args) -> list:
             if analyst["score"] < threshold:
                 continue
 
+            if analyst["score"] in filter_cfg["score_blacklist"]:
+                continue
+
             # S2: BTC always requires score ≥7 (not just off-hours)
             if "BTC" in symbol.upper() and filter_cfg["btc_score_always"]:
                 if analyst["score"] < 7:
@@ -543,6 +546,9 @@ def run_backtest(args) -> list:
                     continue
                 # S4: block all BUY entries for XAU
                 if filter_cfg["xau_sell_only"] and direction == "BUY":
+                    continue
+                # S3A: block all SELL entries for XAU
+                if filter_cfg["xau_buy_only"] and direction == "SELL":
                     continue
                 # S3/S5: peak hours only (07-17 Thai)
                 if filter_cfg["xau_peak_only"] and not (7 <= thai_hour <= 17):
@@ -562,6 +568,9 @@ def run_backtest(args) -> list:
                              (direction == "SELL" and rsi_now >= 68)
                     if not (rsi_ok and analyst["score"] >= 7):
                         continue
+                # S3A: block specific peak hours that have 0% WR (Thai h7=UTC0, h8=UTC1)
+                if filter_cfg["btc_dead_hours"] and thai_hour in filter_cfg["btc_dead_hours"]:
+                    continue
 
             # 5. GUARDIAN
             allowed, _ = check_guardian(
