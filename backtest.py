@@ -315,8 +315,21 @@ def parse_args():
                    help="Risk level 1-5 (default: 3)")
     p.add_argument("--export",  type=str, default=None, metavar="PATH",
                    help="Export trade log to CSV")
-    p.add_argument("--capital", type=float, default=1000.0, metavar="USD",
-                   help="Starting capital in USD, split equally across symbols (default: 1000)")
+    p.add_argument("--capital",  type=float, default=300.0, metavar="USD",
+                   help="Starting capital in USD, split equally across symbols (default: 300)")
+    p.add_argument("--lot",      type=float, default=0.03, metavar="LOT",
+                   help="Lot size per trade (default: 0.03)")
+    p.add_argument("--spread",   type=float, default=0.20, metavar="PIPS",
+                   help="Broker spread in pips, deducted from every trade P&L (default: 0.20)")
+    p.add_argument("--scenario", type=str,   default="baseline",
+                   choices=["baseline", "s1", "s2", "s3", "s3a", "s4", "s5"],
+                   help=("Filter scenario — "
+                         "s1:X1+B3(XAU_hours_expand+ATR_filter)  "
+                         "s2:B1(BTC_score>=7_always)  "
+                         "s3:X1+X2(XAU_peak_only)  "
+                         "s3a:S3+BTC_dead_h7-8+XAU_buy_only+XAU_dead_h7+16+score!=8  "
+                         "s4:X6(XAU_sell_only)  "
+                         "s5:S3+BTC_ATR>=200+XAU_score>=7"))
     return p.parse_args()
 
 
@@ -350,9 +363,13 @@ DIRECTOR_REFRESH_BARS = 48
 WARMUP_BARS = 100
 
 # Risk management constants
-_DAILY_LOSS_LIMIT    = {"BTCUSDm": -8.0, "XAUUSDm": -20.0}
-_CIRCUIT_BREAKER_PCT  = 20.0  # halt if equity drops this % below running peak
-_CIRCUIT_BREAKER_DAYS = 5     # calendar days to stay halted before resuming
+_DAILY_LOSS_LIMIT     = {"BTCUSDm": -8.0, "XAUUSDm": -20.0}
+_CIRCUIT_BREAKER_PCT  = 20.0
+_CIRCUIT_BREAKER_DAYS = 5
+
+# Scenario filter constants
+_MIN_ATR    = {"BTCUSDm": 20.0, "XAUUSDm": 1.0}   # S1/S3: ATR minimum
+_PIP_POINTS = {"BTCUSDm": 100,  "XAUUSDm": 10}     # points per pip per symbol
 
 
 def _is_safe_bar_time(bar_time: pd.Timestamp, symbol: str) -> bool:
@@ -383,10 +400,15 @@ def run_backtest(args) -> list:
     all_trades = []
 
     for symbol in args.symbols:
-        cfg          = SYMBOLS_CONFIG[symbol]
-        print(f"[INFO] Loading data for {symbol} ...")
-        data         = load_data(symbol, args.months)
-        sym_info     = load_symbol_info(symbol)
+        cfg      = SYMBOLS_CONFIG[symbol]
+        cache    = getattr(args, "_cached_data", None)
+        if cache and symbol in cache:
+            data     = cache[symbol]
+            sym_info = cache[symbol].get("_info") or load_symbol_info(symbol)
+        else:
+            print(f"[INFO] Loading data for {symbol} ...")
+            data     = load_data(symbol, args.months)
+            sym_info = load_symbol_info(symbol)
         m5_df        = data["M5"]
         m15_df       = data["M15"]
         h1_df        = data["H1"]
@@ -394,12 +416,31 @@ def run_backtest(args) -> list:
         d1_df        = data["D1"]
         point        = sym_info["point"]
         tick_value   = sym_info["tick_value"]
-        lot          = cfg["lot"]
+        lot          = args.lot
+        lot_scale    = lot / 0.01
+        spread_pts   = args.spread * _PIP_POINTS.get(symbol, 10)
         fixed_spread = _FIXED_SPREAD.get(symbol, 100)
         max_spread   = cfg["max_spread_override"]
 
         # Mirrors ai_engine.py: base_trigger table + per-symbol offset
         threshold = max(4, _BASE_TRIGGER[args.risk] + cfg["analyst_score_offset"])
+
+        # Scenario-specific filter config (evaluated once per symbol)
+        sc = args.scenario
+        filter_cfg = {
+            "atr_filter":       sc in ("s1", "s3", "s3a", "s5"),
+            "atr_min":          {"BTCUSDm": 200.0, "XAUUSDm": 1.0} if sc == "s5" else _MIN_ATR,
+            "xau_dead_hours":   (2, 5, 6, 15, 17, 20, 21, 22) if sc in ("s1",)
+                                else (2, 5, 6, 7, 16, 17, 22) if sc == "s3a"
+                                else (2, 5, 6, 17, 22),
+            "xau_peak_only":    sc in ("s3", "s3a", "s5"),
+            "xau_sell_only":    sc == "s4",
+            "xau_buy_only":     sc == "s3a",
+            "btc_dead_hours":   (7, 8) if sc == "s3a" else (),
+            "btc_score_always": sc == "s2",
+            "xau_score_min":    7 if sc == "s5" else 0,
+            "score_blacklist":  {8} if sc == "s3a" else set(),
+        }
 
         director_state = {"allowed_direction": "BOTH", "h4_trend": "N/A",
                           "last_refresh_bar": -DIRECTOR_REFRESH_BARS}
@@ -409,12 +450,12 @@ def run_backtest(args) -> list:
         # Risk management state
         sym_equity   = args.capital / len(args.symbols)
         sym_peak     = sym_equity
-        cb_resume    = None   # date when circuit breaker lifts (None = not triggered)
-        daily_pnl: dict = {}  # {date: cumulative closed P&L that day}
-        daily_paused: set = set()  # calendar dates where daily limit was hit
+        cb_resume    = None
+        daily_pnl: dict = {}
+        daily_paused: set = set()
 
         print(f"[INFO] Simulating {len(m5_df)} M5 bars for {symbol} "
-              f"(risk {args.risk}, threshold {threshold}) ...")
+              f"(scenario={sc}, lot={lot}, spread={args.spread}pips) ...")
 
         for i in range(WARMUP_BARS, len(m5_df)):
             bar_time = m5_df.iloc[i]["time"]
@@ -444,7 +485,7 @@ def run_backtest(args) -> list:
                     # Daily loss limit
                     exit_date = pd.Timestamp(pos["exit_time"]).date()
                     daily_pnl[exit_date] = daily_pnl.get(exit_date, 0.0) + pos["net_profit"]
-                    if daily_pnl[exit_date] <= _DAILY_LOSS_LIMIT.get(symbol, float("-inf")):
+                    if daily_pnl[exit_date] <= _DAILY_LOSS_LIMIT.get(symbol, float("-inf")) * lot_scale:
                         daily_paused.add(exit_date)
                 else:
                     still_open.append(pos)
@@ -474,6 +515,12 @@ def run_backtest(args) -> list:
             m15_slice = m15_df[m15_df["time"] <= bar_time].tail(100)
             h1_slice  = h1_df[h1_df["time"]  <= bar_time].tail(100)
 
+            # S1/S3/S5: ATR minimum — skip ranging/dead markets
+            if filter_cfg["atr_filter"]:
+                m5_atr = float(_calc_atr_chandelier(m5_slice.copy()).iloc[-1]["atr"])
+                if m5_atr < filter_cfg["atr_min"].get(symbol, 0.0):
+                    continue
+
             rsi_now   = calculate_rsi(m5_slice["close"].tolist())
             direction = "BUY" if rsi_now < 50 else "SELL"
 
@@ -482,24 +529,37 @@ def run_backtest(args) -> list:
             if analyst["score"] < threshold:
                 continue
 
+            # S2: BTC always requires score ≥7 (not just off-hours)
+            if "BTC" in symbol.upper() and filter_cfg["btc_score_always"]:
+                if analyst["score"] < 7:
+                    continue
+
+            thai_hour = (bar_time + pd.Timedelta(hours=7)).hour
+
             # 4b. XAU quality filters
             if "XAU" in symbol.upper():
-                # Block BUY_ONLY state — H4/D1 uptrend on gold produces poor BUY entries
+                # Block BUY_ONLY state
                 if director_state["allowed_direction"] == "BUY_ONLY":
                     continue
-                # Block dead-zone hours (Asian noise, low-volume)
-                thai_hour = (bar_time + pd.Timedelta(hours=7)).hour
-                if thai_hour in (2, 5, 6, 17, 22):
+                # S4: block all BUY entries for XAU
+                if filter_cfg["xau_sell_only"] and direction == "BUY":
+                    continue
+                # S3/S5: peak hours only (07-17 Thai)
+                if filter_cfg["xau_peak_only"] and not (7 <= thai_hour <= 17):
+                    continue
+                # Dead-zone hours (scenario-specific set)
+                if thai_hour in filter_cfg["xau_dead_hours"]:
+                    continue
+                # S5: XAU requires higher score threshold
+                if filter_cfg["xau_score_min"] and analyst["score"] < filter_cfg["xau_score_min"]:
                     continue
 
             # 4c. BTC off-hours filter (Approach A+C)
-            # Off-hours (outside 07-17 Thai) require stricter RSI + higher score
             if "BTC" in symbol.upper():
-                thai_hour = (bar_time + pd.Timedelta(hours=7)).hour
-                is_peak   = 7 <= thai_hour <= 17
+                is_peak = 7 <= thai_hour <= 17
                 if not is_peak:
-                    rsi_ok  = (direction == "BUY" and rsi_now <= 32) or \
-                              (direction == "SELL" and rsi_now >= 68)
+                    rsi_ok = (direction == "BUY" and rsi_now <= 32) or \
+                             (direction == "SELL" and rsi_now >= 68)
                     if not (rsi_ok and analyst["score"] >= 7):
                         continue
 
@@ -524,9 +584,10 @@ def run_backtest(args) -> list:
             exit_info = simulate_position_exit(
                 m5_df, i, direction, entry_price, sl_price, tp_price
             )
-            net_p  = compute_net_profit(
+            spread_cost = spread_pts * tick_value * lot
+            net_p = compute_net_profit(
                 direction, entry_price, exit_info["exit_price"], lot, tick_value, point
-            )
+            ) - spread_cost
             layers = sum(1 for p in open_positions if p["symbol"] == symbol) + 1
 
             open_positions.append({
@@ -628,10 +689,14 @@ def print_report(trades: list, args) -> None:
     start_date = end_date - timedelta(days=args.months * 31)
     sep = "=" * 60
 
+    scenario = getattr(args, "scenario", "baseline")
+    lot      = getattr(args, "lot",      "cfg")
+    spread   = getattr(args, "spread",   0.0)
     print(f"\n{sep}")
     print("  PC TRADING — BACKTEST REPORT")
-    print(f"  Period : {start_date} -> {end_date}  ({args.months} months)")
-    print(f"  Risk   : Level {args.risk}  |  Symbols: {', '.join(args.symbols)}")
+    print(f"  Period   : {start_date} -> {end_date}  ({args.months} months)")
+    print(f"  Scenario : {scenario.upper()}  |  Lot: {lot}  |  Spread: {spread} pips")
+    print(f"  Risk     : Level {args.risk}  |  Symbols: {', '.join(args.symbols)}")
     print(sep)
 
     for sym in args.symbols:
