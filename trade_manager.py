@@ -307,6 +307,12 @@ async def trading_job():
                                         log.warning(f"⚠️ [GUARDIAN] บล็อก! Spread กว้างเกิน"); continue
                                     if agent3.is_max_layers_hit(s, "BUY"):
                                         log.warning(f"🛑 [GUARDIAN] บล็อก! ถึงขีดจำกัด {s} BUY layers"); continue
+                                    if agent3.is_btc_dead_hour(s):
+                                        log.warning(f"🛑 [GUARDIAN-E] บล็อก! {s} Dead Hour (UTC 00-01)"); continue
+                                    if agent3.is_xau_dead_hour(s):
+                                        log.warning(f"🛑 [GUARDIAN-F] บล็อก! {s} Dead Hour (UTC 00/09)"); continue
+                                    if agent3.is_score_blacklisted(s, score):
+                                        log.warning(f"🛑 [GUARDIAN-H] บล็อก! Score={score} anomaly band"); continue
 
                                     log.info(f"🎯 [Python] ผ่านด่าน Agent 3 แล้ว! กำลังส่งคำสั่ง BUY → MT5 (SENTINEL OK)...")
                                     
@@ -371,6 +377,14 @@ async def trading_job():
                                         log.warning(f"⚠️ [GUARDIAN] บล็อก! Spread กว้างเกิน"); continue
                                     if agent3.is_max_layers_hit(s, "SELL"):
                                         log.warning(f"🛑 [GUARDIAN] บล็อก! ถึงขีดจำกัด {s} SELL layers"); continue
+                                    if agent3.is_btc_dead_hour(s):
+                                        log.warning(f"🛑 [GUARDIAN-E] บล็อก! {s} Dead Hour (UTC 00-01)"); continue
+                                    if agent3.is_xau_dead_hour(s):
+                                        log.warning(f"🛑 [GUARDIAN-F] บล็อก! {s} Dead Hour (UTC 00/09)"); continue
+                                    if agent3.is_xau_sell_blocked(s, "SELL"):
+                                        log.warning(f"🛑 [GUARDIAN-G] บล็อก! {s} XAU direction lock (BUY only)"); continue
+                                    if agent3.is_score_blacklisted(s, score):
+                                        log.warning(f"🛑 [GUARDIAN-H] บล็อก! Score={score} anomaly band"); continue
 
                                     log.info(f"🎯 [Python] ผ่านด่าน Agent 3 แล้ว! กำลังส่งคำสั่ง SELL → MT5 (SENTINEL OK)...")
                                     

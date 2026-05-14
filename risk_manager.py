@@ -7,6 +7,10 @@ Checks (in order):
   2. is_against_trend     — DIRECTOR policy alignment
   3. is_spread_too_high   — dynamic spread filter
   4. is_max_layers_hit    — prevents martingale runaway  [UPGRADE #9]
+  5. is_btc_dead_hour     — block BTC UTC 00-01 (Asian dead zone)   [S3A Gate E]
+  6. is_xau_dead_hour     — block XAU UTC 00, 09 (0% WR hours)      [S3A Gate F]
+  7. is_xau_sell_blocked  — XAU BUY-only direction lock              [S3A Gate G]
+  8. is_score_blacklisted — block score=8 anomaly band               [S3A Gate H]
 """
 
 import sqlite3
@@ -182,3 +186,63 @@ class RiskManager:
         except Exception as e:
             logging.getLogger("System").warning(f"⚠️ [GUARDIAN] max_layers check error: {e}")
             return False  # fail-open: don't block if MT5 unresponsive
+
+    # ══════════════════════════════════════════════════════════════
+    #  [S3A] Gate E — BTC Dead-Hour Block
+    # ══════════════════════════════════════════════════════════════
+
+    def is_btc_dead_hour(self, symbol):
+        """[GUARDIAN] Block BTC during UTC 00:00-01:59 (Asian dead zone, WR <32%)."""
+        if "BTC" not in symbol.upper():
+            return False
+        utc_hour = datetime.utcnow().hour
+        if utc_hour in (0, 1):
+            import logging
+            logging.getLogger("System").warning(
+                f"🛑 [GUARDIAN-E] Blocked {symbol} — dead hour UTC {utc_hour:02d}:xx")
+            return True
+        return False
+
+    # ══════════════════════════════════════════════════════════════
+    #  [S3A] Gate F — XAU Dead-Hour Block
+    # ══════════════════════════════════════════════════════════════
+
+    def is_xau_dead_hour(self, symbol):
+        """[GUARDIAN] Block XAU at UTC 00:xx and UTC 09:xx (0% WR in both hours)."""
+        if "XAU" not in symbol.upper():
+            return False
+        utc_hour = datetime.utcnow().hour
+        if utc_hour in (0, 9):
+            import logging
+            logging.getLogger("System").warning(
+                f"🛑 [GUARDIAN-F] Blocked {symbol} — dead hour UTC {utc_hour:02d}:xx")
+            return True
+        return False
+
+    # ══════════════════════════════════════════════════════════════
+    #  [S3A] Gate G — XAU Direction Lock (BUY only)
+    # ══════════════════════════════════════════════════════════════
+
+    def is_xau_sell_blocked(self, symbol, order_type):
+        """[GUARDIAN] Block all XAU SELL entries (XAU SELL = -$107 PnL across 3 months)."""
+        if "XAU" not in symbol.upper():
+            return False
+        if str(order_type).upper() == "SELL":
+            import logging
+            logging.getLogger("System").warning(
+                f"🛑 [GUARDIAN-G] Blocked {symbol} SELL — XAU direction lock (BUY only)")
+            return True
+        return False
+
+    # ══════════════════════════════════════════════════════════════
+    #  [S3A] Gate H — Score Anomaly Blacklist
+    # ══════════════════════════════════════════════════════════════
+
+    def is_score_blacklisted(self, symbol, score):
+        """[GUARDIAN] Block score=8 entries (WR 15.8% — anomalous band)."""
+        if int(score) == 8:
+            import logging
+            logging.getLogger("System").warning(
+                f"🛑 [GUARDIAN-H] Blocked {symbol} — score={score} blacklisted")
+            return True
+        return False
