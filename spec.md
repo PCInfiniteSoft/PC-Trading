@@ -269,19 +269,22 @@ done :
   - Dynamic Chandelier SL/TP replacing fixed SL/TP
   - Quality filters for XAU/BTC off-hours (S1–S5 scenarios)
   - Daily loss limit + equity circuit breaker
-  - S3-Balanced (s3a) design: 4 filters cut MaxDD 26.5% → 10.8%
+  - S3-Balanced (s3a) design: 4 filters cut MaxDD 26.5% → 14.5%
+  - S3A backtest verified: 708 trades, WR 36.6%, PnL +$639, MaxDD 14.5%, Sharpe 3.86
+  - S3A Guardian gates E–H ported to production (risk_manager.py + trade_manager.py)
 
 ---
 
 todo :
 
-  - Implement s3a in backtest.py and run_scenarios.py
-  - Run backtest, verify s3a metrics match simulation
-  - Port s3a rules into production risk_manager.py (Gates e/f/g)
+  - Monitor live performance of Gates E–H on production bot
+  - Consider re-running full scenario suite (baseline + s1–s5 + s3a) on fresh data
+  - Investigate score=8 anomaly root cause in ai_engine scoring formula
 
 ---
 
 current state :
 
-  S3 baseline is the only profitable scenario (+$537, MaxDD 26.5%).
-  S3-Balanced design approved — adding scenario s3a to backtest next.
+  S3A is live in production. Guardian now has 8 gates (A–H).
+  Gates E–H block: BTC UTC 00-01, XAU UTC 00/09, XAU SELL, score=8.
+  Backtest result: PnL +$639 / MaxDD 14.5% / Sharpe 3.86 over 3 months.
