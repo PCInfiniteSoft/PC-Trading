@@ -1,4 +1,6 @@
 import logging
+import os
+import sys
 import shared_state
 import MetaTrader5 as mt5
 import pandas as pd
@@ -12,6 +14,8 @@ from bot_config import *
 from trade_noti import send_trade_notification
 from discord.ext import tasks
 from risk_manager import RiskManager
+
+DEPLOY_FLAG = "deploy.flag"
 
 agent3 = RiskManager(db_path="trading_history.db")
 
@@ -44,7 +48,12 @@ async def trading_job():
     
     shared_state.SCAN_COUNT += 1
 
-    if check_daily_drawdown(): 
+    if os.path.exists(DEPLOY_FLAG):
+        os.remove(DEPLOY_FLAG)
+        logging.getLogger("System").info("🔄 [DEPLOY] deploy.flag detected — restarting with new code...")
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+
+    if check_daily_drawdown():
         return
 
     if shared_state.BOT_STATE in ["STOPPED", "WAITING", "DAY-OFF"]: 
