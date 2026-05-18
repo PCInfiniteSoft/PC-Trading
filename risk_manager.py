@@ -3,15 +3,16 @@ GUARDIAN (was Agent 3) — Risk Gate
 Enforces all pre-trade safety checks before any order fires.
 
 Checks (in order):
-  1. is_cooldown_active   — only blocks after SL hit, NOT after TP  [UPGRADE #3]
-  2. is_against_trend     — DIRECTOR policy alignment
-  3. is_spread_too_high   — dynamic spread filter
-  4. is_max_layers_hit    — prevents martingale runaway  [UPGRADE #9]
-  5. is_btc_dead_hour     — block BTC UTC 00-01 (Asian dead zone)   [S3A Gate E]
-  6. is_xau_dead_hour     — block XAU low-WR hours, UTC 00 exempt if STRONG_BULLISH [S3A Gate F]
-  7. is_xau_sell_blocked  — XAU SELL only when DIRECTOR=SELL_ONLY   [S3A Gate G]
-  8. is_score_blacklisted — block score=8 anomaly band               [S3A Gate H]
-  9. is_xau_h4_downtrend  — block XAU BUY when H4=DOWNTREND (0% WR) [Gate I]
+  1. is_cooldown_active        — only blocks after SL hit, NOT after TP  [UPGRADE #3]
+  2. is_against_trend          — DIRECTOR policy alignment
+  3. is_spread_too_high        — dynamic spread filter
+  4. is_max_layers_hit         — prevents martingale runaway  [UPGRADE #9]
+  5. is_btc_dead_hour          — block BTC UTC 00-01 (Asian dead zone)   [S3A Gate E]
+  6. is_xau_dead_hour          — block XAU low-WR hours, UTC 00 exempt if STRONG_BULLISH [S3A Gate F]
+  7. is_xau_sell_blocked       — XAU SELL only when DIRECTOR=SELL_ONLY   [S3A Gate G]
+  8. is_score_blacklisted      — block score=8 anomaly band               [S3A Gate H]
+  9. is_xau_h4_downtrend       — block XAU BUY when H4=DOWNTREND (0% WR) [Gate I]
+ 10. is_daily_budget_exhausted — block all trades when today losses >= limit [Gate J]
 """
 
 import logging
@@ -267,3 +268,38 @@ class RiskManager:
             _log.warning(f"🛑 [GUARDIAN-H] Blocked {symbol} — score={score} blacklisted")
             return True
         return False
+
+    # ══════════════════════════════════════════════════════════════
+    #  Gate J — Daily Risk Budget
+    #  Concept: the-trading-dev-kit risk-manager subagent
+    # ══════════════════════════════════════════════════════════════
+
+    def is_daily_budget_exhausted(self, daily_loss_limit: float = 100.0) -> bool:
+        """[GUARDIAN-J] Block all new trades when today's realized losses >= daily_loss_limit.
+        Unlike Gate D (per-symbol layers), this tracks cumulative dollar losses across ALL symbols today.
+        Fail-open: if DB unreadable, don't block (first run has no history).
+        """
+        try:
+            conn   = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            today  = datetime.now().strftime("%Y-%m-%d") + " 00:00:00"
+            cursor.execute("""
+                SELECT COALESCE(SUM(net_profit), 0.0)
+                FROM trade_history
+                WHERE exit_time IS NOT NULL
+                  AND exit_time >= ?
+                  AND net_profit < 0
+            """, (today,))
+            result = cursor.fetchone()
+            conn.close()
+            today_losses = abs(float(result[0])) if result[0] else 0.0
+            if today_losses >= daily_loss_limit:
+                _log.warning(
+                    f"🛑 [GUARDIAN-J] Daily budget exhausted — "
+                    f"losses today ${today_losses:.2f} >= limit ${daily_loss_limit:.2f}")
+                return True
+            _log.info(f"✅ [GUARDIAN-J] Budget OK — today losses ${today_losses:.2f} / ${daily_loss_limit:.2f}")
+            return False
+        except Exception as e:
+            _log.warning(f"⚠️ [GUARDIAN-J] daily budget check error: {e}")
+            return False  # fail-open

@@ -317,6 +317,10 @@ async def trading_job():
                     allowed_dir = macro_data.get('allowed_direction', 'BOTH')
                     
                     if allowed_dir in ["BUY_ONLY", "BOTH"]:
+                        # Gate J: daily budget check (before GPT call to avoid waste)
+                        if agent3.is_daily_budget_exhausted(DAILY_LOSS_LIMIT):
+                            logging.getLogger(s).warning(f"🛑 [GUARDIAN-J] บล็อก! Daily budget exhausted — ไม่เปิด BUY {s}"); continue
+
                         scout = adv.get_scout_score(s, "BUY")
                         logging.getLogger(s).info(f"🔭 [SCOUT] BUY pre-check — {scout['reason']}")
                         if ai.AI_IS_ONLINE:
@@ -388,6 +392,10 @@ async def trading_job():
                     allowed_dir = macro_data.get('allowed_direction', 'BOTH')
                     
                     if allowed_dir in ["SELL_ONLY", "BOTH"]:
+                        # Gate J: daily budget check (before GPT call to avoid waste)
+                        if agent3.is_daily_budget_exhausted(DAILY_LOSS_LIMIT):
+                            logging.getLogger(s).warning(f"🛑 [GUARDIAN-J] บล็อก! Daily budget exhausted — ไม่เปิด SELL {s}"); continue
+
                         scout = adv.get_scout_score(s, "SELL")
                         logging.getLogger(s).info(f"🔭 [SCOUT] SELL pre-check — {scout['reason']}")
                         if ai.AI_IS_ONLINE:

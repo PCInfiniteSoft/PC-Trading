@@ -398,11 +398,17 @@ async def ai_analysis(symbol, price, rsi, st_data):
     trigger_score = max(4, base_trigger + score_offset)
 
     order_type = "BUY" if rsi < 50 else "SELL"
-    scout = adv.get_scout_score(symbol, order_type)
+    scout    = adv.get_scout_score(symbol, order_type)
     scout_bonus = scout["score"]
 
     ob = st_data.get("ob", {"type": "None"})
     zone_score = adv.score_zone_proximity(price, ob, order_type)
+
+    # ── Breakout + Pullback depth bonuses ─────────────────────────
+    breakout       = adv.get_breakout_score(symbol, order_type)
+    pb_depth       = adv.get_pullback_depth_score(symbol, order_type)
+    breakout_bonus = breakout["score"]
+    pb_bonus       = pb_depth["score"]
 
     # ── BTC-specific prompt hint ───────────────────────────────────
     if "BTC" in symbol:
@@ -423,22 +429,28 @@ async def ai_analysis(symbol, price, rsi, st_data):
         f"  SMC Zone:       {st_data['ob_zone']}\n"
         f"  Chandelier:     Long stop {st_data['long_stop']} | Short stop {st_data['short_stop']}\n"
         f"  SCOUT pre-filter: {scout['reason']}\n"
+        f"  BREAKOUT: {breakout['reason']}\n"
+        f"  PULLBACK DEPTH: {pb_depth['reason']}\n"
         f"{btc_hint}\n"
         f"\n"
-        f"[ANALYST SCORING SYSTEM — Max 12 points]\n"
+        f"[ANALYST SCORING SYSTEM — Max 15 points]\n"
         f"BUY criteria:\n"
-        f"  1. H1 Supertrend = UPTREND 🟢           → +4 pts\n"
-        f"  2. Price inside/near Demand Zone          → +4 pts (inside) or +2 pts (within 0.3%)\n"
-        f"  3. RSI < 40                               → +2 pts\n"
-        f"  SCOUT bonus (MACD+EMA alignment)          → +0/+1/+2 pts (already computed: +{scout_bonus})\n"
+        f"  1. H1 Supertrend = UPTREND 🟢                   → +4 pts\n"
+        f"  2. Price inside/near Demand Zone                  → +4 pts (inside) or +2 pts (within 0.3%)\n"
+        f"  3. RSI < 40                                       → +2 pts\n"
+        f"  SCOUT bonus (MACD+EMA alignment)                  → +0/+1/+2 pts (already computed: +{scout_bonus})\n"
+        f"  BREAKOUT bonus (consolidation break + vol)        → +0/+1/+2 pts (already computed: +{breakout_bonus})\n"
+        f"  PULLBACK DEPTH bonus (30-65% swing retracement)   → +0/+1 pts (already computed: +{pb_bonus})\n"
         f"SELL criteria:\n"
-        f"  1. H1 Supertrend = DOWNTREND 🔴           → +4 pts\n"
-        f"  2. Price inside/near Supply Zone           → +4 pts (inside) or +2 pts (within 0.3%)\n"
-        f"  3. RSI > 60                                → +2 pts\n"
-        f"  SCOUT bonus                                → +{scout_bonus} pts\n"
+        f"  1. H1 Supertrend = DOWNTREND 🔴                   → +4 pts\n"
+        f"  2. Price inside/near Supply Zone                   → +4 pts (inside) or +2 pts (within 0.3%)\n"
+        f"  3. RSI > 60                                        → +2 pts\n"
+        f"  SCOUT bonus                                        → +{scout_bonus} pts\n"
+        f"  BREAKOUT bonus                                     → +{breakout_bonus} pts\n"
+        f"  PULLBACK DEPTH bonus                               → +{pb_bonus} pts\n"
         f"\n"
         f"NOTE: Zone proximity score already determined = {zone_score} pts. Add this to your tally.\n"
-        f"NOTE: SCOUT bonus already determined = {scout_bonus} pts. Add this to your tally.\n"
+        f"NOTE: SCOUT bonus = +{scout_bonus}, BREAKOUT bonus = +{breakout_bonus}, PULLBACK bonus = +{pb_bonus}. Add all to your tally.\n"
         f"\n"
         f"🔴 TRIGGER RULE: decision MUST be BUY/SELL (not HOLD) only if total score >= {trigger_score}.\n"
         f"   [UPGRADE #2] RSI alone (2pts) is NEVER enough to trigger — minimum 2 criteria required.\n"
@@ -462,8 +474,8 @@ async def ai_analysis(symbol, price, rsi, st_data):
         result = json.loads(response.choices[0].message.content)
 
         logging.getLogger(symbol).info(
-            f"🎯 [ANALYST] Score: {result.get('score')}/12 | "
-            f"SCOUT: +{scout_bonus} | Zone: +{zone_score} | "
+            f"🎯 [ANALYST] Score: {result.get('score')}/15 | "
+            f"SCOUT: +{scout_bonus} | Breakout: +{breakout_bonus} | PB: +{pb_bonus} | Zone: +{zone_score} | "
             f"Decision: {result.get('decision')} | {result.get('reason', '')}"
         )
         return result

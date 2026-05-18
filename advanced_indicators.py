@@ -203,6 +203,112 @@ def get_scout_score(symbol, order_type: str, timeframe=mt5.TIMEFRAME_M15) -> dic
             "reason": f"MACD={macd_sig} | EMA20{'>' if ema20>ema50 else '<'}EMA50 | SCOUT+{score}pts"}
 
 
+# ══════════════════════════════════════════════════════════════════
+#  BREAKOUT SCORE — consolidation breakout bonus (+0/+1/+2)
+#  Concept from: the-trading-dev-kit breakout playbook
+# ══════════════════════════════════════════════════════════════════
+
+def get_breakout_score(symbol, order_type: str, timeframe=mt5.TIMEFRAME_M5,
+                       consolidation_bars: int = 10,
+                       vol_multiplier: float = 1.5) -> dict:
+    """
+    Breakout detection: N-bar consolidation → close outside range → volume spike.
+    +2 pts: breakout + volume confirmed
+    +1 pt : breakout only (volume weak / unavailable)
+    +0 pts: no breakout
+    """
+    result = {"score": 0, "breakout": False, "reason": "No breakout"}
+
+    rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, consolidation_bars + 5)
+    if rates is None or len(rates) < consolidation_bars + 2:
+        return result
+
+    df    = pd.DataFrame(rates)
+    order = order_type.upper()
+
+    consol       = df.iloc[-(consolidation_bars + 1):-1]
+    last         = df.iloc[-1]
+    consol_high  = consol['high'].max()
+    consol_low   = consol['low'].min()
+    if consol_high <= consol_low:
+        return result
+
+    breakout_up   = (order == "BUY")  and (float(last['close']) > consol_high)
+    breakout_down = (order == "SELL") and (float(last['close']) < consol_low)
+    if not (breakout_up or breakout_down):
+        result["reason"] = f"Price inside {consol_low:.2f}–{consol_high:.2f}"
+        return result
+
+    avg_vol  = float(consol['tick_volume'].mean()) if 'tick_volume' in consol.columns else 0
+    last_vol = float(last.get('tick_volume', 0))
+    vol_ok   = (avg_vol > 0) and (last_vol >= avg_vol * vol_multiplier)
+
+    direction = "UP" if breakout_up else "DOWN"
+    score     = 2 if vol_ok else 1
+    result.update({
+        "score": score, "breakout": True,
+        "reason": (f"Breakout {direction} of {consol_low:.2f}–{consol_high:.2f} | "
+                   f"vol {'confirmed ✓' if vol_ok else 'weak'} | +{score}pts")
+    })
+    return result
+
+
+# ══════════════════════════════════════════════════════════════════
+#  PULLBACK DEPTH SCORE — swing retracement filter (+0/+1)
+#  Concept from: the-trading-dev-kit pullback playbook
+#  Valid pullback: 30–65% retracement of prior swing
+# ══════════════════════════════════════════════════════════════════
+
+def get_pullback_depth_score(symbol, order_type: str, timeframe=mt5.TIMEFRAME_M5,
+                              lookback: int = 25) -> dict:
+    """
+    +1 pt : pullback depth 30–65% of prior swing (sweet spot)
+    +0 pts: too shallow (<30% = aggressive) or too deep (>65% = possible reversal)
+    """
+    result = {"score": 0, "depth_pct": None, "reason": "Insufficient data"}
+
+    rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, lookback)
+    if rates is None or len(rates) < lookback:
+        return result
+
+    df    = pd.DataFrame(rates)
+    order = order_type.upper()
+
+    highs  = df['high'].values
+    lows   = df['low'].values
+    closes = df['close'].values
+
+    if order == "BUY":
+        swing_high  = highs[:-3].max()
+        swing_low   = lows[-5:].min()
+        swing_range = swing_high - swing_low
+        if swing_range <= 0:
+            result["reason"] = "Swing range = 0"
+            return result
+        depth = (swing_high - closes[-1]) / swing_range
+    else:
+        swing_low   = lows[:-3].min()
+        swing_high  = highs[-5:].max()
+        swing_range = swing_high - swing_low
+        if swing_range <= 0:
+            result["reason"] = "Swing range = 0"
+            return result
+        depth = (closes[-1] - swing_low) / swing_range
+
+    depth_pct = round(depth * 100, 1)
+
+    if 0.30 <= depth <= 0.65:
+        result.update({"score": 1, "depth_pct": depth_pct,
+                       "reason": f"Pullback depth {depth_pct}% (sweet spot 30–65%) | +1pt"})
+    elif depth < 0.30:
+        result.update({"score": 0, "depth_pct": depth_pct,
+                       "reason": f"Pullback too shallow {depth_pct}% (<30%)"})
+    else:
+        result.update({"score": 0, "depth_pct": depth_pct,
+                       "reason": f"Pullback too deep {depth_pct}% (>65%) — possible reversal"})
+    return result
+
+
 # Backwards-compat alias
 def get_trend_confirmation(symbol, order_type: str, timeframe=mt5.TIMEFRAME_M15) -> dict:
     s = get_scout_score(symbol, order_type, timeframe)

@@ -24,6 +24,10 @@ LOT = float(conf.get("LOT", 0.01))
 TIMEFRAME = mt5.TIMEFRAME_M5
 
 LOG_PATH = conf.get("LOG_PATH", "Logs")
+
+# [Gate J] หยุด trade ทั้งวันถ้า realized loss วันนี้ >= limit นี้
+# ปรับได้ใน settings.txt: DAILY_LOSS_LIMIT=100
+DAILY_LOSS_LIMIT = float(conf.get("DAILY_LOSS_LIMIT", 100.0))
 REPORT_CHANNEL_ID = int(conf.get("REPORT_CHANNEL_ID", 0))
 WEBHOOK_URL = conf.get("WEBHOOK_URL", "")
 
