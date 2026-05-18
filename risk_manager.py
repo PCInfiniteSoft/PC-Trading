@@ -8,15 +8,19 @@ Checks (in order):
   3. is_spread_too_high   — dynamic spread filter
   4. is_max_layers_hit    — prevents martingale runaway  [UPGRADE #9]
   5. is_btc_dead_hour     — block BTC UTC 00-01 (Asian dead zone)   [S3A Gate E]
-  6. is_xau_dead_hour     — block XAU UTC 00, 09 (0% WR hours)      [S3A Gate F]
-  7. is_xau_sell_blocked  — XAU BUY-only direction lock              [S3A Gate G]
+  6. is_xau_dead_hour     — block XAU low-WR hours, UTC 00 exempt if STRONG_BULLISH [S3A Gate F]
+  7. is_xau_sell_blocked  — XAU SELL only when DIRECTOR=SELL_ONLY   [S3A Gate G]
   8. is_score_blacklisted — block score=8 anomaly band               [S3A Gate H]
+  9. is_xau_h4_downtrend  — block XAU BUY when H4=DOWNTREND (0% WR) [Gate I]
 """
 
+import logging
 import sqlite3
 import shared_state
 import MetaTrader5 as mt5
 from datetime import datetime, timedelta
+
+_log = logging.getLogger("System")
 
 # ── Max open layers per symbol to prevent martingale runaway ──────
 MAX_LAYERS_PER_SYMBOL = 3   # [UPGRADE #9] was effectively 5 (no limit)
@@ -191,15 +195,17 @@ class RiskManager:
     #  [S3A] Gate E — BTC Dead-Hour Block
     # ══════════════════════════════════════════════════════════════
 
+    @staticmethod
+    def _is_xau(symbol):
+        return "XAU" in symbol.upper()
+
     def is_btc_dead_hour(self, symbol):
         """[GUARDIAN] Block BTC during UTC 00:00-01:59 (Asian dead zone, WR <32%)."""
         if "BTC" not in symbol.upper():
             return False
         utc_hour = datetime.utcnow().hour
         if utc_hour in (0, 1):
-            import logging
-            logging.getLogger("System").warning(
-                f"🛑 [GUARDIAN-E] Blocked {symbol} — dead hour UTC {utc_hour:02d}:xx")
+            _log.warning(f"🛑 [GUARDIAN-E] Blocked {symbol} — dead hour UTC {utc_hour:02d}:xx")
             return True
         return False
 
@@ -207,15 +213,18 @@ class RiskManager:
     #  [S3A] Gate F — XAU Dead-Hour Block
     # ══════════════════════════════════════════════════════════════
 
-    def is_xau_dead_hour(self, symbol):
-        """[GUARDIAN] Block XAU at UTC 00:xx and UTC 09:xx (0% WR in both hours)."""
-        if "XAU" not in symbol.upper():
+    def is_xau_dead_hour(self, symbol, macro_bias=None):
+        """[GUARDIAN] Block XAU during low-WR hours.
+        UTC 00 exempt when macro_bias=STRONG_BULLISH (live data: 3/3 TP in that condition).
+        Extended hours: 00,01,09,11,13,17,18,19,20 (all <32% WR or 0% WR in backtest).
+        """
+        if not self._is_xau(symbol):
             return False
         utc_hour = datetime.utcnow().hour
-        if utc_hour in (0, 9):
-            import logging
-            logging.getLogger("System").warning(
-                f"🛑 [GUARDIAN-F] Blocked {symbol} — dead hour UTC {utc_hour:02d}:xx")
+        if utc_hour == 0 and macro_bias and "STRONG_BULLISH" in str(macro_bias):
+            return False
+        if utc_hour in (0, 1, 9, 11, 13, 17, 18, 19, 20):
+            _log.warning(f"🛑 [GUARDIAN-F] Blocked {symbol} — dead hour UTC {utc_hour:02d}:xx")
             return True
         return False
 
@@ -223,14 +232,28 @@ class RiskManager:
     #  [S3A] Gate G — XAU Direction Lock (BUY only)
     # ══════════════════════════════════════════════════════════════
 
-    def is_xau_sell_blocked(self, symbol, order_type):
-        """[GUARDIAN] Block all XAU SELL entries (XAU SELL = -$107 PnL across 3 months)."""
-        if "XAU" not in symbol.upper():
+    def is_xau_sell_blocked(self, symbol, order_type, allowed_dir='BOTH'):
+        """[GUARDIAN] Block XAU SELL unless DIRECTOR macro = SELL_ONLY.
+        SELL+neutral macro = -$708 PnL (18% WR). SELL+SELL_ONLY = +$261 (43% WR).
+        """
+        if not self._is_xau(symbol):
             return False
-        if str(order_type).upper() == "SELL":
-            import logging
-            logging.getLogger("System").warning(
-                f"🛑 [GUARDIAN-G] Blocked {symbol} SELL — XAU direction lock (BUY only)")
+        if str(order_type).upper() == "SELL" and allowed_dir != "SELL_ONLY":
+            _log.warning(
+                f"🛑 [GUARDIAN-G] Blocked {symbol} SELL — allowed_dir={allowed_dir} (need SELL_ONLY)")
+            return True
+        return False
+
+    # ══════════════════════════════════════════════════════════════
+    #  Gate I — XAU H4 Downtrend Block
+    # ══════════════════════════════════════════════════════════════
+
+    def is_xau_h4_downtrend(self, symbol, h4_trend='N/A'):
+        """[GUARDIAN] Block XAU BUY when H4 trend = DOWNTREND (0% WR, 4/4 SL in backtest)."""
+        if not self._is_xau(symbol):
+            return False
+        if "DOWNTREND" in str(h4_trend).upper():
+            _log.warning(f"🛑 [GUARDIAN-I] Blocked {symbol} BUY — H4 trend={h4_trend}")
             return True
         return False
 
@@ -241,8 +264,6 @@ class RiskManager:
     def is_score_blacklisted(self, symbol, score):
         """[GUARDIAN] Block score=8 entries (WR 15.8% — anomalous band)."""
         if int(score) == 8:
-            import logging
-            logging.getLogger("System").warning(
-                f"🛑 [GUARDIAN-H] Blocked {symbol} — score={score} blacklisted")
+            _log.warning(f"🛑 [GUARDIAN-H] Blocked {symbol} — score={score} blacklisted")
             return True
         return False

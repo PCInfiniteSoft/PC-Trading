@@ -139,7 +139,48 @@ async def trading_job():
                                        today_news, atr_pct_h4=atr_pct_h4)
         
         shared_state.LAST_MACRO_TIME = now
-    
+
+    # ── Weekly / Monthly Analysis trigger ─────────────────────────
+    now_utc    = datetime.utcnow()
+    _is_sunday = (now_utc.weekday() == 6 and now_utc.hour == 0)
+    _cur_week  = now_utc.isocalendar()[1]
+    _last_week = getattr(shared_state, 'LAST_WEEKLY_ANALYSIS_WEEK', None)
+
+    if _is_sunday and _last_week != _cur_week:
+        try:
+            import weekly_analyzer
+            _wpath = await _asyncio.get_event_loop().run_in_executor(
+                None, weekly_analyzer.run_weekly_analysis)
+            if _wpath:
+                logging.getLogger("System").info(f"📊 [Weekly] analysis เสร็จ: {_wpath}")
+            shared_state.LAST_WEEKLY_ANALYSIS_WEEK = _cur_week
+        except Exception as _e:
+            logging.getLogger("System").error(f"❌ [Weekly] error: {_e}")
+
+        if now_utc.day <= 7:
+            if mt5.terminal_info() is not None:
+                try:
+                    import monthly_analyzer
+                    _task = _asyncio.create_task(monthly_analyzer.run_monthly_analysis())
+                    shared_state.MONTHLY_TASK_REF = _task
+                except Exception as _e:
+                    logging.getLogger("System").error(f"❌ [Monthly] error: {_e}")
+            else:
+                shared_state.MONTHLY_ANALYSIS_PENDING = True
+                logging.getLogger("System").warning("📊 [Monthly] MT5 offline — retry ทุก 15 นาที")
+
+    if getattr(shared_state, 'MONTHLY_ANALYSIS_PENDING', False):
+        _last_retry = getattr(shared_state, 'MONTHLY_RETRY_TIME', datetime.min)
+        if (now_utc - _last_retry).total_seconds() >= 900 and mt5.terminal_info() is not None:
+            try:
+                import monthly_analyzer
+                _task = _asyncio.create_task(monthly_analyzer.run_monthly_analysis())
+                shared_state.MONTHLY_TASK_REF = _task
+                shared_state.MONTHLY_ANALYSIS_PENDING = False
+                shared_state.MONTHLY_RETRY_TIME = now_utc
+            except Exception as _e:
+                logging.getLogger("System").error(f"❌ [Monthly retry] error: {_e}")
+
     is_news_window = False
     news_windows = getattr(shared_state, 'NEWS_WINDOWS', [])
     if news_windows:
@@ -255,8 +296,12 @@ async def trading_job():
                     has_sell = True
                     sell_tickets.append(p.ticket)
 
+        if len(strat.get('buy', [])) < 5 or len(strat.get('sell', [])) < 5:
+            logging.getLogger(s).warning(f"⚠️ STRATEGY_DATA สำหรับ {s} ไม่ครบ — ข้ามรอบนี้")
+            continue
+
         for i in range(5):
-            
+
             # ==========================================
             # 📉 BUY block
             # ==========================================
@@ -309,8 +354,10 @@ async def trading_job():
                                         log.warning(f"🛑 [GUARDIAN] บล็อก! ถึงขีดจำกัด {s} BUY layers"); continue
                                     if agent3.is_btc_dead_hour(s):
                                         log.warning(f"🛑 [GUARDIAN-E] บล็อก! {s} Dead Hour (UTC 00-01)"); continue
-                                    if agent3.is_xau_dead_hour(s):
-                                        log.warning(f"🛑 [GUARDIAN-F] บล็อก! {s} Dead Hour (UTC 00/09)"); continue
+                                    if agent3.is_xau_dead_hour(s, macro_data.get('bias', '')):
+                                        log.warning(f"🛑 [GUARDIAN-F] บล็อก! {s} Dead Hour"); continue
+                                    if agent3.is_xau_h4_downtrend(s, macro_data.get('h4_trend', 'N/A')):
+                                        log.warning(f"🛑 [GUARDIAN-I] บล็อก! {s} BUY — H4 DOWNTREND"); continue
                                     if agent3.is_score_blacklisted(s, score):
                                         log.warning(f"🛑 [GUARDIAN-H] บล็อก! Score={score} anomaly band"); continue
 
@@ -379,10 +426,10 @@ async def trading_job():
                                         log.warning(f"🛑 [GUARDIAN] บล็อก! ถึงขีดจำกัด {s} SELL layers"); continue
                                     if agent3.is_btc_dead_hour(s):
                                         log.warning(f"🛑 [GUARDIAN-E] บล็อก! {s} Dead Hour (UTC 00-01)"); continue
-                                    if agent3.is_xau_dead_hour(s):
-                                        log.warning(f"🛑 [GUARDIAN-F] บล็อก! {s} Dead Hour (UTC 00/09)"); continue
-                                    if agent3.is_xau_sell_blocked(s, "SELL"):
-                                        log.warning(f"🛑 [GUARDIAN-G] บล็อก! {s} XAU direction lock (BUY only)"); continue
+                                    if agent3.is_xau_dead_hour(s, macro_data.get('bias', '')):
+                                        log.warning(f"🛑 [GUARDIAN-F] บล็อก! {s} Dead Hour"); continue
+                                    if agent3.is_xau_sell_blocked(s, "SELL", allowed_dir):
+                                        log.warning(f"🛑 [GUARDIAN-G] บล็อก! {s} XAU SELL blocked (need SELL_ONLY)"); continue
                                     if agent3.is_score_blacklisted(s, score):
                                         log.warning(f"🛑 [GUARDIAN-H] บล็อก! Score={score} anomaly band"); continue
 

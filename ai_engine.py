@@ -70,17 +70,22 @@ Analyze H4/D1 technical data AND upcoming economic events.
 - H4 ATR% of price:  {atr_pct_h4}%  (>0.8% = elevated volatility)
 - Upcoming News (not yet passed): {news_data}
 
+[Historical Performance Context]
+{analysis_context}
+
 [Instructions]
 1. The news list above contains ONLY upcoming events that have NOT passed yet.
    If news_data is empty or says "No high-impact news", set direction based on trend only.
 2. Only set allowed_direction = NONE if a news event is within the NEXT 30 minutes.
 3. Set direction based on H4/D1 trend:
    - Both UPTREND → BUY_ONLY
-   - Both DOWNTREND → SELL_ONLY  
+   - Both DOWNTREND → SELL_ONLY
    - Mixed or SIDEWAY → BOTH
    - News within 30 min → NONE
 4. Risk level: default 3. Only lower if ATR > 1.0% AND news is imminent.
    Never set risk below 3 unless direction is NONE.
+5. Use the Historical Performance Context above to inform your bias if available.
+   Pay attention to hours with low win rate and recent direction accuracy.
 
 Output MUST be strictly valid JSON:
 {{
@@ -97,9 +102,24 @@ Output MUST be strictly valid JSON:
 # ══════════════════════════════════════════════════════════════════
 
 async def ai_macro_analysis(symbol, h4_trend, d1_trend, news_data, atr_pct_h4=0.0):
+    try:
+        import weekly_analyzer, monthly_analyzer
+        weekly_ctx  = weekly_analyzer.load_context_for_director(max_chars=1200)
+        monthly_ctx = monthly_analyzer.load_context_for_director(max_chars=800)
+        context_parts = []
+        if weekly_ctx:
+            context_parts.append(f"=== Weekly Analysis (last 2 weeks) ===\n{weekly_ctx}")
+        if monthly_ctx:
+            context_parts.append(f"=== Monthly Pattern Analysis ===\n{monthly_ctx}")
+        analysis_context = "\n\n".join(context_parts) if context_parts else "No analysis data yet."
+    except Exception:
+        logging.getLogger("System").exception("[DIRECTOR] ไม่สามารถโหลด weekly/monthly context")
+        analysis_context = "No analysis data yet."
+
     prompt = DIRECTOR_PROMPT.format(
         symbol=symbol, h4_trend=h4_trend, d1_trend=d1_trend,
-        atr_pct_h4=round(atr_pct_h4, 3), news_data=news_data
+        atr_pct_h4=round(atr_pct_h4, 3), news_data=news_data,
+        analysis_context=analysis_context,
     )
     try:
         response = await client.chat.completions.create(
@@ -295,8 +315,16 @@ Output STRICT valid JSON only:
 
         data = json.loads(response.choices[0].message.content)
 
-        STRATEGY_DATA[symbol]["buy"]          = sorted(data['buy_levels'],  reverse=True)
-        STRATEGY_DATA[symbol]["sell"]         = sorted(data['sell_levels'])
+        buy_levels  = sorted(data['buy_levels'],  reverse=True)
+        sell_levels = sorted(data['sell_levels'])
+        if len(buy_levels) != 5 or len(sell_levels) != 5:
+            logging.getLogger("System").warning(
+                f"⚠️ [STRATEGY] {symbol}: GPT ส่ง levels ผิดจำนวน "
+                f"(buy={len(buy_levels)}, sell={len(sell_levels)}) — คง levels เดิมไว้")
+            return False
+
+        STRATEGY_DATA[symbol]["buy"]          = buy_levels
+        STRATEGY_DATA[symbol]["sell"]         = sell_levels
         STRATEGY_DATA[symbol]["threshold"]    = float(data.get('spike_threshold', sym_cfg.get("threshold", 0.25)))
         STRATEGY_DATA[symbol]["atr_pct"]      = atr_pct
         STRATEGY_DATA[symbol]["bb_pct"]       = bb_pct
