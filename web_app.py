@@ -20,6 +20,11 @@ try:
 except ImportError:
     _shared_state = None
 
+try:
+    import ai_engine as _ai_engine
+except ImportError:
+    _ai_engine = None
+
 app = Flask(__name__, static_folder=".")
 logging.getLogger("werkzeug").setLevel(logging.ERROR)
 
@@ -71,6 +76,9 @@ def api_status():
     # (bot_status.json is only written every scan loop, not on every GUI change)
     if _shared_state is not None:
         data["risk_level"] = _shared_state.CURRENT_RISK_LEVEL
+    if _ai_engine is not None:
+        data["ai_online"] = _ai_engine.AI_IS_ONLINE
+        data["ai_error_code"] = _ai_engine.AI_ERROR_CODE
     with _log_lock:
         data["logs"] = list(reversed(_log_buffer[-50:]))
     return jsonify(data)

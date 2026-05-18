@@ -263,7 +263,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
   .rsidebar{order:3}
 
   /* Stats row: horizontal scroll */
-  .stats-row{grid-template-columns:repeat(8,140px)!important;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .stats-row{grid-template-columns:repeat(6,140px)!important;overflow-x:auto;-webkit-overflow-scrolling:touch}
   .stats-row::-webkit-scrollbar{height:0}
 
   /* 4-panel grid: single column, each panel auto height */
@@ -319,10 +319,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
   <div class="tb-stat"><span class="lbl">Win Rate</span><span class="val" id="tb-wr">—</span></div>
   <div class="tb-stat"><span class="lbl">Scan #</span><span class="val a" id="tb-scan">—</span></div>
   <div class="tb-stat"><span class="lbl">AI Status</span><span class="val" id="tb-ai">—</span></div>
-  <div class="regime-wrap">
-    <div class="rdot" id="rdot"></div>
-    <span class="rlabel" id="tb-regime">—</span>
-  </div>
+  <div class="regime-wrap" id="regime-pills-wrap" style="gap:5px;"></div>
   <div class="tb-right">
     <div class="conn-dot" id="conn-dot"></div>
     <span class="mbadge mlive" id="mode-live">LIVE</span>
@@ -407,7 +404,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
     </div>
     <div class="agent-row">
       <div class="ag-ic" style="background:rgba(0,212,170,.1)">🛡️</div>
-      <div style="flex:1;min-width:0"><div class="ag-name">GUARDIAN — Risk Gate</div><div class="ag-sub">Spread · Trend · Cooldown · Layers</div></div>
+      <div style="flex:1;min-width:0"><div class="ag-name">GUARDIAN — Risk Gate</div><div class="ag-sub">9 Gates: A–D Core · E BTC·Hr · F XAU·Hr · G XAU·Dir · H Score · I H4</div></div>
       <span class="badge bon">ON</span>
     </div>
     <div class="agent-row">
@@ -426,15 +423,13 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
 <!-- MAIN CENTER -->
 <div class="main">
   <!-- Stats row -->
-  <div class="stats-row" style="grid-template-columns:repeat(8,1fr);">
+  <div class="stats-row">
     <div class="sc"><span class="lbl">Bot State</span><span class="val g" id="s-state">—</span><span class="sub" id="s-state-sub">—</span></div>
-    <div class="sc"><span class="lbl">Balance</span><span class="val" id="s-balance">—</span><span class="sub" id="s-equity">—</span></div>
+    <div class="sc"><span class="lbl">Today P&L</span><span class="val" id="s-today-pnl">—</span><span class="sub" id="s-today-sub">W: — / L: —</span></div>
     <div class="sc"><span class="lbl">Float P&L</span><span class="val" id="s-float">—</span><span class="sub" id="s-open">— positions</span></div>
-    <div class="sc"><span class="lbl">Drawdown</span><span class="val" id="s-dd">—</span><span class="sub" id="s-dd-sub">—</span></div>
+    <div class="sc"><span class="lbl">Win Rate</span><span class="val" id="s-winrate">—</span><span class="sub" id="s-winrate-sub">W: — / L: —</span></div>
     <div class="sc"><span class="lbl">Total Trades</span><span class="val b" id="s-total-trades">—</span><span class="sub" id="s-total-sub">— closed</span></div>
-    <div class="sc"><span class="lbl">Overall Win Rate</span><span class="val" id="s-winrate">—</span><span class="sub" id="s-winrate-sub">W: — / L: —</span></div>
-    <div class="sc"><span class="lbl">Scan Loop</span><span class="val a" id="s-loop">—</span><span class="sub" id="s-scan">Scan #—</span></div>
-    <div class="sc"><span class="lbl">Risk Level</span><span class="val y" id="s-risk">—</span><span class="sub">Max DD: <span id="s-maxdd">—</span></span></div>
+    <div class="sc"><span class="lbl">Risk / MaxDD</span><span class="val y" id="s-risk">—</span><span class="sub">MaxDD: <span id="s-maxdd">—</span></span></div>
   </div>
   <!-- Heartbeat -->
   <div class="hb-bar">
@@ -537,7 +532,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
                 <div class="agc-tw"><div class="agc-name">GUARDIAN</div><div class="agc-role">Risk Gate</div></div>
                 <div class="agc-mbadge agc-mb-loc">Local</div>
               </div>
-              <div class="agc-desc">Cooldown · Spread · Trend · Layers≤3</div>
+              <div class="agc-desc">9 Gates A–I: Cooldown · Spread · Trend · Layers · BTC/XAU Hours · XAU Dir · Score · H4</div>
               <div class="agc-foot">
                 <div class="agc-status"><div class="agc-dot agc-dot-on"></div><span style="color:var(--green)">ONLINE</span></div>
                 <div class="agc-data">Max 3 layers</div>
@@ -667,7 +662,7 @@ function updateCtrlBar(d){
   };
   setPill('pill-discord', d.discord_online);
   setPill('pill-mt5',     d.mt5_online);
-  setPill('pill-ai',      d.ai_online !== false);
+  setPill('pill-ai',      d.ai_online === true);
 }
 
 // ══════════════════════════════════════════════════════
@@ -861,33 +856,48 @@ function renderSymbols(symbols){
     </div>`;
   }).join('');
 
-  // Main panel symbol cards
-  $('sym-cards-inner').innerHTML = Object.entries(symbols).map(([sym,d])=>{
-    const dir = d.allowed_dir||'BOTH';
-    const rsiColor = d.rsi<30?'var(--green)':d.rsi>70?'var(--red)':'var(--yellow)';
-    const mkt = d.market_status||'—';
-    const mktColor = mkt==='OPEN'?'var(--green)':mkt==='CLOSED'?'var(--red)':'#666';
-    const mktBg   = mkt==='OPEN'?'rgba(0,230,118,.12)':mkt==='CLOSED'?'rgba(255,61,87,.12)':'rgba(255,255,255,.06)';
+  // Panel 4: Macro/Trend view (distinct from right sidebar market view)
+  $('sym-cards-inner').innerHTML = Object.entries(symbols).map(([sym,sv])=>{
+    const dir = sv.allowed_dir||'BOTH';
+    const dirCol = dir==='BUY_ONLY'?'var(--green)':dir==='SELL_ONLY'?'var(--red)':'var(--yellow)';
+    const dirBg  = dir==='BUY_ONLY'?'rgba(0,230,118,.12)':dir==='SELL_ONLY'?'rgba(255,61,87,.12)':'rgba(255,193,7,.12)';
+    const h4 = (sv.h4_trend||'N/A').replace('🟢','').replace('🔴','').replace('TRENDING_UP','↑UP').replace('TRENDING_DOWN','↓DOWN').trim();
+    const d1 = (sv.d1_trend||'N/A').replace('🟢','').replace('🔴','').replace('TRENDING_UP','↑UP').replace('TRENDING_DOWN','↓DOWN').trim();
+    const h4c = h4.includes('UP')?'var(--green)':h4.includes('DOWN')?'var(--red)':'var(--yellow)';
+    const d1c = d1.includes('UP')?'var(--green)':d1.includes('DOWN')?'var(--red)':'var(--yellow)';
+    const atr = sv.atr_pct ? `${(sv.atr_pct*100).toFixed(2)}%` : (sv.atr ? `${Number(sv.atr).toFixed(1)}pts` : '—');
+    const bias = sv.macro_bias || 'N/A';
     return `<div class="sym-c">
-      <div class="sym-top"><span class="sym-name" style="font-size:12px">${sym}</span>
-        <span class="stag" style="background:${mktBg};color:${mktColor};border:1px solid ${mktColor}40;font-size:8px">● ${mkt}</span>
-        <span class="sym-v" style="font-size:12px">${fmt(d.price,d.price>1000?2:5)}</span></div>
-      <div class="sym-kv" style="margin-bottom:2px"><span class="sym-k">RSI (M5)</span><span class="sym-v" style="color:${rsiColor}">${fmt(d.rsi,1)}</span></div>
-      <div class="sym-kv" style="margin-bottom:2px"><span class="sym-k">Regime</span><span class="sym-v">${d.regime||'N/A'}</span></div>
-      <div class="sym-kv" style="margin-bottom:2px"><span class="sym-k">H4 Trend</span><span class="sym-v">${(d.h4_trend||'N/A').replace('🟢','').replace('🔴','').trim()}</span></div>
-      <div class="sym-kv"><span class="sym-k">D1 Trend</span><span class="sym-v">${(d.d1_trend||'N/A').replace('🟢','').replace('🔴','').trim()}</span></div>
+      <div class="sym-top"><span class="sym-name" style="font-size:11px">${sym}</span>
+        <span class="stag" style="background:${dirBg};color:${dirCol};border:1px solid ${dirCol}40;font-size:8px">${dir}</span></div>
+      <div class="sym-kv" style="margin-bottom:2px"><span class="sym-k">Bias</span><span class="sym-v" style="color:var(--yellow);font-size:9px">${bias}</span></div>
+      <div class="sym-kv" style="margin-bottom:2px"><span class="sym-k">H4</span><span class="sym-v" style="color:${h4c};font-size:9px">${h4}</span></div>
+      <div class="sym-kv" style="margin-bottom:2px"><span class="sym-k">D1</span><span class="sym-v" style="color:${d1c};font-size:9px">${d1}</span></div>
+      <div class="sym-kv"><span class="sym-k">ATR</span><span class="sym-v" style="font-size:9px">${atr}</span></div>
     </div>`;
   }).join('');
 
-  // Macro panel
-  const first = Object.values(symbols)[0]||{};
-  $('macro-list').innerHTML = `
-    <div class="mac-row"><span class="mac-lbl">XAU Bias</span><span class="mac-val" style="color:var(--yellow)">${(symbols['XAUUSDm']?.macro_bias)||'N/A'}</span></div>
-    <div class="mac-row"><span class="mac-lbl">XAU Allow</span><span class="mac-val" style="color:var(--green)">${(symbols['XAUUSDm']?.allowed_dir)||'N/A'}</span></div>
-    <div class="mac-row"><span class="mac-lbl">BTC Bias</span><span class="mac-val" style="color:var(--yellow)">${(symbols['BTCUSDm']?.macro_bias)||'N/A'}</span></div>
-    <div class="mac-row"><span class="mac-lbl">BTC Allow</span><span class="mac-val" style="color:var(--red)">${(symbols['BTCUSDm']?.allowed_dir)||'N/A'}</span></div>
-    <div class="mac-row"><span class="mac-lbl">Spread XAU</span><span class="mac-val">${fmt(symbols['XAUUSDm']?.spread,0)} pts</span></div>
-    <div class="mac-row"><span class="mac-lbl">Spread BTC</span><span class="mac-val">${fmt(symbols['BTCUSDm']?.spread,0)} pts</span></div>`;
+  // Macro sidebar — per-symbol block (no duplicates)
+  $('macro-list').innerHTML = ['XAUUSDm','BTCUSDm'].map(sym => {
+    const sv = symbols[sym] || {};
+    const dir = sv.allowed_dir || 'BOTH';
+    const dirCol = dir==='BUY_ONLY'?'var(--green)':dir==='SELL_ONLY'?'var(--red)':'var(--yellow)';
+    const h4 = (sv.h4_trend||'N/A').replace('🟢','').replace('🔴','').replace('TRENDING_UP','UP').replace('TRENDING_DOWN','DOWN').trim();
+    const d1 = (sv.d1_trend||'N/A').replace('🟢','').replace('🔴','').replace('TRENDING_UP','UP').replace('TRENDING_DOWN','DOWN').trim();
+    const h4c = h4.includes('UP')?'var(--green)':h4.includes('DOWN')?'var(--red)':'var(--yellow)';
+    const d1c = d1.includes('UP')?'var(--green)':d1.includes('DOWN')?'var(--red)':'var(--yellow)';
+    const atr = sv.atr_pct ? `${(sv.atr_pct*100).toFixed(2)}%` : (sv.atr ? `${Number(sv.atr).toFixed(1)}pts` : '—');
+    return `<div style="padding:6px 10px;border-bottom:1px solid var(--border)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <span style="font-family:var(--font-mono);font-size:11px;font-weight:700;color:var(--accent)">${sym.replace('USDm','')}</span>
+        <span style="font-family:var(--font-mono);font-size:9px;font-weight:700;color:${dirCol};background:${dir==='BUY_ONLY'?'rgba(0,230,118,.1)':dir==='SELL_ONLY'?'rgba(255,61,87,.1)':'rgba(255,193,7,.1)'};padding:1px 6px;border-radius:2px">${dir}</span>
+      </div>
+      <div class="mac-row" style="padding:2px 0"><span class="mac-lbl">Bias</span><span class="mac-val" style="color:var(--yellow)">${sv.macro_bias||'N/A'}</span></div>
+      <div class="mac-row" style="padding:2px 0"><span class="mac-lbl">H4 Trend</span><span class="mac-val" style="color:${h4c}">${h4}</span></div>
+      <div class="mac-row" style="padding:2px 0"><span class="mac-lbl">D1 Trend</span><span class="mac-val" style="color:${d1c}">${d1}</span></div>
+      <div class="mac-row" style="padding:2px 0;border:none"><span class="mac-lbl">ATR</span><span class="mac-val">${atr}</span></div>
+    </div>`;
+  }).join('');
 }
 
 function updateRegimeBar(regime){
@@ -931,9 +941,27 @@ async function fetchAndRender(){
     $('tb-dd').className = `val ${ddPct>5?'r2':ddPct>2?'y':'g'}`;
     $('tb-open').textContent = d.open_count||0;
     $('tb-scan').textContent = `#${d.scan_count||0}`;
-    const regime = (d.state||'').replace(/COOLDOWN.*/,'COOLDOWN');
-    $('tb-regime').textContent = d.state==='RUNNING'?`RUNNING · ${d.loop_mins||5}m`:(d.state||'—');
     updateRegimeBar(d.state||'');
+    // Regime pills: per-symbol regime in topbar
+    const pillsWrap = $('regime-pills-wrap');
+    if(pillsWrap && d.symbols) {
+      pillsWrap.innerHTML = Object.entries(d.symbols).map(([sym,sv]) => {
+        const r = (sv.regime||'N/A').replace('TRENDING_UP','UP').replace('TRENDING_DOWN','DOWN').replace('RANGING','RANGE').replace('SIDEWAY','SIDE');
+        const col = r.includes('UP')||r.includes('BULL') ? 'var(--green)' : r.includes('DOWN')||r.includes('BEAR') ? 'var(--red)' : 'var(--yellow)';
+        const bg  = r.includes('UP')||r.includes('BULL') ? 'rgba(0,230,118,.12)' : r.includes('DOWN')||r.includes('BEAR') ? 'rgba(255,61,87,.12)' : 'rgba(255,193,7,.12)';
+        return `<span style="background:${bg};color:${col};border:1px solid ${col}40;padding:2px 8px;border-radius:3px;font-family:var(--font-mono);font-size:10px;font-weight:700;white-space:nowrap">${sym.replace('USDm','')}: ${r}</span>`;
+      }).join('');
+    }
+    // Today P&L from tb-today topbar element
+    const todayStr = new Date().toISOString().slice(0,10);
+    const todayTrades = (d.recent_trades||[]).filter(t => (t.exit_time||'').startsWith(todayStr));
+    const todayPnl = todayTrades.reduce((s,t) => s+(t.net_profit||0), 0);
+    const todayW = todayTrades.filter(t => (t.net_profit||0)>0).length;
+    const todayL = todayTrades.filter(t => (t.net_profit||0)<=0).length;
+    if($('tb-today')) {
+      $('tb-today').textContent = todayTrades.length ? fmtSign(todayPnl) : '—';
+      $('tb-today').className = `val ${colorClass(todayPnl)}`;
+    }
 
     // ── Sidebar equity ──
     $('eq-val').textContent = fmtUSD(equity);
@@ -954,19 +982,15 @@ async function fetchAndRender(){
     // ── Stats row ──
     $('s-state').textContent = d.state||'—';
     $('s-state').className = `val ${d.state==='RUNNING'?'g':d.state?.includes('COOLDOWN')?'y':'r2'}`;
-    $('s-state-sub').textContent = `Scan #${d.scan_count||0}`;
-    $('s-balance').textContent = fmtUSD(balance);
-    $('s-equity').textContent = `Equity: ${fmtUSD(equity)}`;
+    $('s-state-sub').textContent = `Loop ${d.loop_mins||5}m · Scan #${d.scan_count||0}`;
+    $('s-today-pnl').textContent = todayTrades.length ? fmtSign(todayPnl) : '—';
+    $('s-today-pnl').className = `val ${colorClass(todayPnl)}`;
+    $('s-today-sub').textContent = `${todayW}W / ${todayL}L today`;
     $('s-float').textContent = fmtSign(floatPl);
     $('s-float').className = `val ${colorClass(floatPl)}`;
     $('s-open').textContent = `${d.open_count||0} positions`;
-    $('s-dd').textContent = `-${fmt(ddPct,2)}%`;
-    $('s-dd').className = `val ${ddPct>5?'r2':ddPct>2?'y':'g'}`;
-    $('s-dd-sub').textContent = `Limit: ${maxDD}%`;
-    $('s-loop').textContent = `${d.loop_mins||5}m`;
-    $('s-scan').textContent = `Scan #${d.scan_count||0}`;
     $('s-risk').textContent = `${risk}/5`;
-    $('s-maxdd').textContent = `${maxDD}%`;
+    $('s-maxdd').textContent = `-${fmt(ddPct,2)}% / ${maxDD}%`;
 
     // ── Total trades + win rate from performance data ──
     const allStrats = perf.by_strategy || [];
@@ -986,7 +1010,9 @@ async function fetchAndRender(){
     $('tb-wr').className = `val ${overallWR>=50?'g':overallWR>=40?'y':'r2'}`;
 
     // ── Heartbeat bar ──
-    $('hb-txt').innerHTML = `💓 <span class="hl">${d.state||'—'}</span> · Gear: <span class="hl">${d.loop_mins||5}m</span> · Pos: <span class="hl">${d.open_count||0}</span> · Float: <span class="hl">${fmtSign(floatPl)}</span> · Balance: <span class="hl">${fmtUSD(balance)}</span>`;
+    const dirRefresh = d.director_last_refresh_mins != null ? `${d.director_last_refresh_mins}m ago` : '—';
+    const activeGates = d.active_gates != null ? `${d.active_gates}/9` : '9';
+    $('hb-txt').innerHTML = `💓 <span class="hl">${d.state||'—'}</span> · Loop: <span class="hl">${d.loop_mins||5}m</span> · DIRECTOR: <span class="hl">${dirRefresh}</span> · Gates: <span class="hl">${activeGates}</span> active · Float: <span class="hl">${fmtSign(floatPl)}</span>`;
 
     // ── Control bar & connections ──
     updateCtrlBar(d);
@@ -1019,7 +1045,7 @@ async function fetchAndRender(){
     }
 
     // ── AI status ──
-    const aiOnline = d.ai_online !== false;
+    const aiOnline = d.ai_online === true;
     const aiErrCode = d.ai_error_code || '';
     $('tb-ai').textContent = aiOnline ? 'Online' : (aiErrCode ? `Err ${aiErrCode}` : 'Offline');
     $('tb-ai').className = `val ${aiOnline ? 'g' : 'r2'}`;
@@ -1057,7 +1083,7 @@ async function fetchAndRender(){
 //  Agent Cards data update
 // ══════════════════════════════════════════════════════
 function renderAgents(d, newsCal){
-  const aiOnline   = d.ai_online !== false;
+  const aiOnline   = d.ai_online === true;
   const aiErrCode  = d.ai_error_code || '';
   const syms       = d.symbols || {};
   const state      = d.state || '';
