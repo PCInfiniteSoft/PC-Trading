@@ -309,6 +309,14 @@ async def trading_job():
             logging.getLogger(s).warning(f"⚠️ STRATEGY_DATA สำหรับ {s} ไม่ครบ — ข้ามรอบนี้")
             continue
 
+        # Candle fingerprint — skip entry logic if M5 candle hasn't changed
+        _rates_fp = mt5.copy_rates_from_pos(s, TIMEFRAME, 0, 1)
+        if _rates_fp is not None and len(_rates_fp) > 0:
+            _candle_ts = int(_rates_fp[0]['time'])
+            if _candle_ts == shared_state.LAST_CANDLE_TIME.get(s):
+                continue
+            shared_state.LAST_CANDLE_TIME[s] = _candle_ts
+
         for i in range(5):
 
             # ==========================================

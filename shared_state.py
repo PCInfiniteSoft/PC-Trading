@@ -29,3 +29,6 @@ tracker_lock = asyncio.Lock()
 # dict: { symbol: {"current": str, "count": int, "pending": str, "pending_count": int} }
 REGIME_STABILITY = {}
 REGIME_MIN_CONFIRMATIONS = 3   # ต้องเห็น regime เดิม 3 รอบติดกันก่อนเปลี่ยน
+
+# Candle fingerprint — { symbol: last_candle_timestamp_int }
+LAST_CANDLE_TIME = {}
