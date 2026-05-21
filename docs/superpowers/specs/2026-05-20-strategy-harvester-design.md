@@ -40,35 +40,59 @@ Sub-projects are independent. Output of 1 feeds into 2, output of 2 feeds into 3
 - Manual URL curation takes too long
 - Excel middle step lets user sort by views/replies and quickly filter relevant threads before spending GPT tokens
 
+### Search Strategy (ForexFactory)
+
+Search ตาม keyword bucket แทนการ crawl ทั้ง forum — ได้ผลที่ตรงกว่า ใช้ page น้อยกว่า
+
+**Filter settings (คงที่ทุก bucket):**
+| Setting | Value | เหตุผล |
+|---------|-------|--------|
+| Forums | Trading Systems เท่านั้น | ตัด discussion/journal/rookie talk |
+| Search In | Threads | เอา thread starter เท่านั้น ไม่เอา reply mention |
+| Sort By | Relevancy | strategy เก่าๆ ยังมีคุณค่า ไม่ sort by Date |
+| Date Range | ไม่ filter | เอา classic strategy ด้วย |
+
+**Keyword Buckets:**
+| Bucket | Keywords | Target threads |
+|--------|----------|---------------|
+| XAU/Gold | "XAU", "Gold", "XAUUSD" | 100 |
+| BTC | "BTC", "Bitcoin", "BTCUSD" | 100 |
+| Breakout | "breakout strategy" | 50 |
+| RSI | "RSI strategy", "RSI system" | 50 |
+
+รวม ~300 threads (หลัง deduplicate by URL น่าจะเหลือ ~200-250)
+
 ### Flow
 
 ```
-Phase 1 — Metadata Crawl (cheap, no GPT)
+Phase 1 — Keyword Search Crawl (cheap, no GPT)
   1. Playwright login (ForexFactory account)
-  2. Crawl all 86 pages of Trading Systems forum (~3,427 threads)
-  3. Collect metadata only: title, url, replies, last_active
+  2. For each keyword bucket:
+     a. Navigate to search with filters: Forum=Trading Systems, Search In=Threads, Sort=Relevancy
+     b. Collect thread metadata: title, url, replies, last_active
+     c. Paginate until hit target count or no more results
+  3. Deduplicate by URL across all buckets
   4. Export strategy_candidates.xlsx
-     columns: title | url | replies | last_active
-  5. Sort by replies descending
+     columns: title | url | replies | last_active | bucket
+  5. Sort by replies descending within each bucket
 
-Phase 2 — Human Filter (in Excel)
-  6. User filters by keyword: Gold, XAU, BTC, Bitcoin, EUR, GBP, breakout, RSI, etc.
-  7. User cuts threads with replies below personal threshold (e.g. < 500)
-  8. Save filtered Excel → typically 50–100 threads remain
+Phase 2 — Human Filter (in Excel, ~30 min)
+  6. User reviews — delete irrelevant rows, save
+  7. Expected remaining: 80–120 threads
 
 Phase 3 — Content Extraction (GPT)
-  9. Script reads filtered Excel
-  10. Fetch first post content of each remaining thread
-  11. GPT extract → strategies_library.json
-  12. GPT generate code skeleton per strategy
-  13. User reviews code skeletons
-  14. Approved skeletons merged into advanced_indicators.py
+  8. Script reads filtered Excel
+  9. Fetch first post content of each remaining thread
+  10. GPT extract → strategies_library.json
+  11. GPT generate code skeleton per strategy
+  12. User reviews code skeletons
+  13. Approved skeletons merged into advanced_indicators.py
 ```
 
 **Rationale for 3-phase split:**
 - Phase 1 costs ~0 GPT tokens (just HTML scraping)
-- Phase 3 GPT cost proportional to threads that survive filter, not all 3,427
-- User controls quality threshold via replies cutoff
+- Phase 3 GPT cost proportional to threads that survive filter (~100 threads)
+- User controls quality in Phase 2
 
 ### Output Files
 
@@ -122,11 +146,12 @@ def get_ff001_score(symbol, order_type, timeframe=mt5.TIMEFRAME_M5) -> dict:
 
 ## Open Questions
 
-- **[x] กี่ thread ต่อรอบ?** — crawl metadata ทั้งหมด ~3,427 threads (86 หน้า), GPT extract เฉพาะ subset ที่ผ่าน human filter (คาดว่า 50–100 thread)
-- **[ ] Replies threshold** — ตัด thread ที่ replies ต่ำกว่าเท่าไหร่? เช่น 200, 500, 1000? (กระทบจำนวน thread ที่ GPT ต้อง process)
-- **[ ] Playwright mode** — headless หรือ headed? (headed ง่าย debug กว่า แต่ต้องมี display)
-- **[ ] GPT model** — GPT-4o-mini (ถูก, เร็ว) หรือ GPT-4o (แม่นกว่า แต่แพงกว่า) สำหรับ extraction?
-- **[ ] ForexFactory account** — สมัครแล้วหรือยัง?
+- **[x] กี่ thread ต่อรอบ?** — search by keyword bucket, target 100+100+50+50 = ~300 threads (หลัง dedup ~200-250), GPT extract เฉพาะที่ผ่าน human filter (~80-120)
+- **[x] Search filter settings** — Forum=Trading Systems only, Search In=Threads, Sort=Relevancy, no date range
+- **[x] ForexFactory account** — สมัครแล้ว (username: gambit4217)
+- **[ ] Replies threshold** — ตัด thread ที่ replies ต่ำกว่าเท่าไหร่? เช่น 200, 500, 1000? (user ตัดสินใจใน Excel Phase 2)
+- **[ ] Playwright mode** — headless หรือ headed?
+- **[ ] GPT model** — GPT-4o-mini หรือ GPT-4o สำหรับ extraction?
 
 ---
 
