@@ -43,18 +43,32 @@ Sub-projects are independent. Output of 1 feeds into 2, output of 2 feeds into 3
 ### Flow
 
 ```
-1. Playwright login (ForexFactory account)
-2. Crawl forum thread list pages
-3. Export strategy_candidates.xlsx
-   columns: title | url | views | replies | last_active | symbol_hint
-4. User reviews Excel — delete irrelevant rows, save
-5. Script reads filtered Excel
-6. Fetch first post content of each remaining thread
-7. GPT extract → strategies_library.json
-8. GPT generate code skeleton per strategy
-9. User reviews code skeletons
-10. Approved skeletons merged into advanced_indicators.py
+Phase 1 — Metadata Crawl (cheap, no GPT)
+  1. Playwright login (ForexFactory account)
+  2. Crawl all 86 pages of Trading Systems forum (~3,427 threads)
+  3. Collect metadata only: title, url, replies, last_active
+  4. Export strategy_candidates.xlsx
+     columns: title | url | replies | last_active
+  5. Sort by replies descending
+
+Phase 2 — Human Filter (in Excel)
+  6. User filters by keyword: Gold, XAU, BTC, Bitcoin, EUR, GBP, breakout, RSI, etc.
+  7. User cuts threads with replies below personal threshold (e.g. < 500)
+  8. Save filtered Excel → typically 50–100 threads remain
+
+Phase 3 — Content Extraction (GPT)
+  9. Script reads filtered Excel
+  10. Fetch first post content of each remaining thread
+  11. GPT extract → strategies_library.json
+  12. GPT generate code skeleton per strategy
+  13. User reviews code skeletons
+  14. Approved skeletons merged into advanced_indicators.py
 ```
+
+**Rationale for 3-phase split:**
+- Phase 1 costs ~0 GPT tokens (just HTML scraping)
+- Phase 3 GPT cost proportional to threads that survive filter, not all 3,427
+- User controls quality threshold via replies cutoff
 
 ### Output Files
 
@@ -108,7 +122,8 @@ def get_ff001_score(symbol, order_type, timeframe=mt5.TIMEFRAME_M5) -> dict:
 
 ## Open Questions
 
-- **[ ] กี่ thread ต่อรอบ?** — top 50 ตาม views, top 100, หรือทั้งหมดใน forum? (ยังไม่ได้ตัดสินใจ, กระทบ runtime และ GPT cost)
+- **[x] กี่ thread ต่อรอบ?** — crawl metadata ทั้งหมด ~3,427 threads (86 หน้า), GPT extract เฉพาะ subset ที่ผ่าน human filter (คาดว่า 50–100 thread)
+- **[ ] Replies threshold** — ตัด thread ที่ replies ต่ำกว่าเท่าไหร่? เช่น 200, 500, 1000? (กระทบจำนวน thread ที่ GPT ต้อง process)
 - **[ ] Playwright mode** — headless หรือ headed? (headed ง่าย debug กว่า แต่ต้องมี display)
 - **[ ] GPT model** — GPT-4o-mini (ถูก, เร็ว) หรือ GPT-4o (แม่นกว่า แต่แพงกว่า) สำหรับ extraction?
 - **[ ] ForexFactory account** — สมัครแล้วหรือยัง?
