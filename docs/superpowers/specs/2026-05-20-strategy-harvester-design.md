@@ -149,9 +149,9 @@ def get_ff001_score(symbol, order_type, timeframe=mt5.TIMEFRAME_M5) -> dict:
 - **[x] กี่ thread ต่อรอบ?** — search by keyword bucket, target 100+100+50+50 = ~300 threads (หลัง dedup ~200-250), GPT extract เฉพาะที่ผ่าน human filter (~80-120)
 - **[x] Search filter settings** — Forum=Trading Systems only, Search In=Threads, Sort=Relevancy, no date range
 - **[x] ForexFactory account** — สมัครแล้ว (username: gambit4217)
-- **[ ] Replies threshold** — ตัด thread ที่ replies ต่ำกว่าเท่าไหร่? เช่น 200, 500, 1000? (user ตัดสินใจใน Excel Phase 2)
-- **[ ] Playwright mode** — headless หรือ headed?
-- **[ ] GPT model** — GPT-4o-mini หรือ GPT-4o สำหรับ extraction?
+- **[x] Playwright mode** — **headed** (มี browser window) เพื่อลดความเสี่ยงโดนแบน + debug ง่าย
+- **[x] GPT model** — **GPT-4o** (full) สำหรับ extraction — รันแค่ครั้งละ ~100 threads คุ้มความแม่นยำ
+- **[ ] Replies threshold** — ตัด thread ที่ replies ต่ำกว่าเท่าไหร่? (user ตัดสินใจใน Excel Phase 2 — ไม่ block implementation)
 
 ---
 
