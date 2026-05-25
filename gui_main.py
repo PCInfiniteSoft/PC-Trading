@@ -163,24 +163,36 @@ class PCTradingApp(ctk.CTk):
         
         shared_state.CURRENT_LOOP_MINS = 2
         
+        import time
         while shared_state.BOT_STATE == "WAITING":
             all_success = True
             for s in SYMBOLS_CONFIG:
                 success = loop.run_until_complete(ai.ai_update_strategy(s, get_win_loss_text()))
-                if not success: 
+                if not success:
                     all_success = False
                     err_code = ai.AI_ERROR_CODE if hasattr(ai, 'AI_ERROR_CODE') and ai.AI_ERROR_CODE else "Timeout"
                     logging.getLogger("System").error(f"❌ โหลดแผน {s} ไม่ผ่าน (Err: {err_code}) จะลองใหม่ใน 2 นาที...")
+                    break  # ออกจาก for loop ทันที ไม่ต้องลอง symbol ถัดไป
+
+            if not all_success:
+                # [BUG FIX] sleep จริง 2 นาที ก่อน retry — เดิมไม่มี sleep ทำให้ loop ค้างไม่มีวันออก
+                for _ in range(120):
+                    if shared_state.BOT_STATE != "WAITING":
+                        break
+                    time.sleep(1)
                     
             if all_success:
                 shared_state.BOT_STATE = "RUNNING"
                 shared_state.TRADE_LAYERS = {s: {"buy": [False]*5, "sell": [False]*5} for s in SYMBOLS_CONFIG}
-                
+
+                # ตรวจสอบและกู้คืนข้อมูลปิดไม้ที่หายไปตอน bot restart
+                tm.reconcile_unclosed_trades()
+
                 # 🟢 โหลดผ่านแล้ว สลับเกียร์กลับเป็น 10 นาที
                 shared_state.CURRENT_LOOP_MINS = 5
                 if tm.trading_job.is_running():
                     tm.trading_job.change_interval(minutes=5)
-                    
+
                 logging.getLogger("System").info("✅ Strategy Ready! ปรับเป็น Gear 5m และเริ่มทำงานเต็มรูปแบบ")
                 bot.loop.create_task(send_startup_report())
                 break

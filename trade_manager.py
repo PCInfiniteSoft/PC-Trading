@@ -41,6 +41,60 @@ async def ensure_mt5_connected(retries: int = 3, delay: float = 5.0) -> bool:
     log.error(f"🚨 [SENTINEL] MT5 reconnect ล้มเหลวทุกครั้ง! ({retries} attempts)")
     return False
 
+def reconcile_unclosed_trades():
+    """
+    ทำงานครั้งเดียวตอน startup — scan DB หาไม้ที่ไม่มีข้อมูลปิด
+    แล้ว backfill จาก MT5 history (ป้องกัน exit หาย เมื่อ bot restart ระหว่างที่มี position เปิด)
+    """
+    log = logging.getLogger("System")
+    try:
+        import sqlite3
+        conn = sqlite3.connect(dbm.DB_NAME)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT ticket, entry_time FROM trade_history
+            WHERE exit_time IS NULL OR exit_time = '' OR exit_price IS NULL
+        """)
+        missing = cur.fetchall()
+        conn.close()
+
+        if not missing:
+            return
+
+        log.warning(f"🔍 [STARTUP] พบ {len(missing)} ไม้ที่ขาดข้อมูลปิด — กำลัง reconcile จาก MT5 history...")
+
+        earliest = min(datetime.strptime(r['entry_time'], "%Y-%m-%d %H:%M:%S") for r in missing)
+        search_from = earliest - timedelta(days=1)
+        deals = mt5.history_deals_get(search_from, datetime.now() + timedelta(hours=1))
+        if not deals:
+            log.warning("⚠️ [STARTUP] ไม่พบ deal ใน MT5 history สำหรับช่วงเวลานี้")
+            return
+
+        repaired = 0
+        for row in missing:
+            ticket = row['ticket']
+            exit_deals = [d for d in deals if d.position_id == ticket and d.entry == mt5.DEAL_ENTRY_OUT]
+            if not exit_deals:
+                log.warning(f"⚠️ [STARTUP] ตั๋ว {ticket}: ยังเปิดอยู่หรือหา deal ไม่เจอ")
+                continue
+            exit_deal = exit_deals[-1]
+            net_profit = exit_deal.profit + exit_deal.swap
+            exit_time = datetime.fromtimestamp(exit_deal.time).strftime("%Y-%m-%d %H:%M:%S")
+            reason = "Hit Take Profit 🎯 [recovered]" if exit_deal.profit > 0 else "Hit Stop Loss 🛡️ [recovered]"
+            dbm.log_trade_exit(
+                ticket=ticket, exit_price=exit_deal.price, net_profit=net_profit,
+                max_float_p=0.0, max_float_l=0.0,
+                exit_reason=reason, balance_after=0.0
+            )
+            log.info(f"✅ [STARTUP] Recovered ตั๋ว {ticket} | P&L: {net_profit:+.2f} | {exit_time}")
+            repaired += 1
+
+        log.info(f"✅ [STARTUP] Reconcile เสร็จ: {repaired}/{len(missing)} ไม้")
+    except Exception as e:
+        logging.getLogger("System").error(f"❌ [STARTUP] reconcile_unclosed_trades error: {e}")
+
+
 @tasks.loop(minutes=1)
 async def trading_job():
 
@@ -544,26 +598,30 @@ async def trading_job():
             
     for ticket in closed_tickets:
         now = datetime.now()
-        start_of_day = datetime(now.year, now.month, now.day)
-        deals = mt5.history_deals_get(start_of_day, now, group="*")
-        
+        # [BUG FIX] ขยาย search window จาก "แค่วันนี้" → 7 วันย้อนหลัง
+        # เดิมใช้ start_of_day ทำให้หา deal ไม่เจอถ้า position ปิดคนละวันกับที่ bot restart
+        search_from = now - timedelta(days=7)
+        deals = mt5.history_deals_get(search_from, now, group="*")
+
         if deals:
             exit_deals = [d for d in deals if d.position_id == ticket and d.entry == mt5.DEAL_ENTRY_OUT]
             if exit_deals:
                 exit_deal = exit_deals[-1]
                 net_profit = exit_deal.profit + exit_deal.swap
                 tracker = shared_state.ACTIVE_TRADE_TRACKER[ticket]
-                
+
                 acc = mt5.account_info()
                 curr_bal = acc.balance if acc else 0.0
                 reason = "Hit Take Profit 🎯" if exit_deal.profit > 0 else "Hit Stop Loss 🛡️"
-                
+
                 dbm.log_trade_exit(
                     ticket=ticket, exit_price=exit_deal.price, net_profit=net_profit,
                     max_float_p=tracker["max_p"], max_float_l=tracker["max_l"],
                     exit_reason=reason, balance_after=curr_bal
                 )
                 logging.getLogger("System").info(f"📝 ตามเก็บ Record ที่ถูกโบรคเกอร์ปิดลง DB: ตั๋ว {ticket} ({reason})")
+            else:
+                logging.getLogger("System").warning(f"⚠️ [TRACKER] ตั๋ว {ticket} หลุด tracker แต่หา exit deal ไม่เจอใน 7 วัน")
         
         async with shared_state.tracker_lock:
             del shared_state.ACTIVE_TRADE_TRACKER[ticket]
