@@ -253,7 +253,13 @@ async def ai_update_strategy(symbol, win_loss_stats="N/A"):
         symbol_hints = f"""
 [XAU-Specific Rules]
 - XAU ATR% is typically 0.04–0.08% per M5 candle.
-- RSI cycles are more predictable. Standard levels apply.
+- RSI cycles are more predictable than BTC.
+- ⚠️ CRITICAL: In TRENDING_UP regime, XAU RSI almost NEVER drops below 40 in a bull market.
+  Setting buy_levels below 40 means the bot will NEVER trade. Use buy_levels around RSI 47-55 for pullback entries.
+- In RANGING regime: buy_levels around RSI 38-46, sell_levels around RSI 54-62.
+- In TRENDING_DOWN: sell_levels around RSI 54-62.
+- Do NOT use buy_levels below 38 unless the current RSI is actively at or below that value.
+- Add {rsi_buy_buffer} pts buffer to buy_levels based on current regime volatility.
 - Min ATR% to trade: {min_atr_pct}%.
 """
 
@@ -421,6 +427,24 @@ async def ai_analysis(symbol, price, rsi, st_data):
     else:
         btc_hint = ""
 
+    # ── DIRECTOR direction constraint ─────────────────────────────
+    macro_data  = getattr(shared_state, 'MACRO_DATA', {}).get(symbol, {})
+    allowed_dir = macro_data.get('allowed_direction', 'BOTH')
+    if allowed_dir == "BUY_ONLY":
+        direction_hint = (
+            f"\n⚠️ DIRECTOR CONSTRAINT: allowed_direction = BUY_ONLY. "
+            f"Evaluate ONLY BUY criteria. Do NOT decide SELL under any circumstance. "
+            f"If RSI is pulling back and H1 Supertrend is UPTREND, this is a BUY setup — score it as BUY. "
+            f"Supply zones are less relevant when the macro trend is strongly bullish."
+        )
+    elif allowed_dir == "SELL_ONLY":
+        direction_hint = (
+            f"\n⚠️ DIRECTOR CONSTRAINT: allowed_direction = SELL_ONLY. "
+            f"Evaluate ONLY SELL criteria. Do NOT decide BUY under any circumstance."
+        )
+    else:
+        direction_hint = ""
+
     prompt = (
         f"Symbol {symbol} | Price {price} | RSI {rsi:.2f} | Regime {STRATEGY_DATA[symbol]['regime']}\n"
         f"Technical indicators:\n"
@@ -441,6 +465,7 @@ async def ai_analysis(symbol, price, rsi, st_data):
         f"  SCOUT bonus (MACD+EMA alignment)                  → +0/+1/+2 pts (already computed: +{scout_bonus})\n"
         f"  BREAKOUT bonus (consolidation break + vol)        → +0/+1/+2 pts (already computed: +{breakout_bonus})\n"
         f"  PULLBACK DEPTH bonus (30-65% swing retracement)   → +0/+1 pts (already computed: +{pb_bonus})\n"
+        f"{direction_hint}\n"
         f"SELL criteria:\n"
         f"  1. H1 Supertrend = DOWNTREND 🔴                   → +4 pts\n"
         f"  2. Price inside/near Supply Zone                   → +4 pts (inside) or +2 pts (within 0.3%)\n"

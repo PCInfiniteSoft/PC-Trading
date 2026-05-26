@@ -88,14 +88,14 @@ SYMBOLS_CONFIG = {
         "threshold": 0.15,
 
         # XAU RSI swing แคบกว่า ไม่ต้องการ buffer มาก
-        "rsi_buy_buffer": 0.0,
+        "rsi_buy_buffer": 3.0,
         "rsi_sell_buffer": 0.0,
 
         # ATR% ขั้นต่ำสำหรับ XAU
         "min_atr_pct": 0.04,
 
-        # XAU ใช้ default score ปกติ
-        "analyst_score_offset": 0,
+        # [FIX] ลด trigger score ลง 1 เท่า BTC — XAU H1+RSI pullback score อาจไม่ถึง 6 ใน trending market
+        "analyst_score_offset": -1,
 
         # XAU spread แคบกว่า
         "max_spread_override": 5000,

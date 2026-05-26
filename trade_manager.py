@@ -445,6 +445,7 @@ async def trading_job():
                                         async with shared_state.trade_layers_lock:
                                             shared_state.TRADE_LAYERS.setdefault(s, {"buy":[False]*5, "sell":[False]*5})["buy"][i] = True
                                         has_buy = True
+                                        break  # [FIX] 1 layer per scan — ป้องกัน multi-entry ใน loop เดียว
                                     else:
                                         log.error(f"❌ [MT5] ยิงคำสั่ง BUY ไม่เข้า! (MT5 ปฏิเสธการเข้าออเดอร์)")
 
@@ -521,6 +522,7 @@ async def trading_job():
                                         async with shared_state.trade_layers_lock:
                                             shared_state.TRADE_LAYERS.setdefault(s, {"buy":[False]*5, "sell":[False]*5})["sell"][i] = True
                                         has_sell = True
+                                        break  # [FIX] 1 layer per scan — ป้องกัน multi-entry ใน loop เดียว
                                     else:
                                         log.error(f"❌ [MT5] ยิงคำสั่ง SELL ไม่เข้า! (MT5 ปฏิเสธการเข้าออเดอร์)")
 
