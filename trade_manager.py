@@ -406,17 +406,16 @@ async def trading_job():
 
                                 # ── ดึง per-symbol score offset ──────────────────────
                                 sym_cfg = SYMBOLS_CONFIG.get(s, {})
-                                t_score = max(4, t_score + sym_cfg.get("analyst_score_offset", 0))
+                                t_score = max(5, t_score + sym_cfg.get("analyst_score_offset", 0))
 
                                 score = round(float(ans.get('score', 0)), 1)
                                 
                                 # ══════════════════════════════════════════════════════
                                 # [BUG FIX] ANALYST Decision check
-                                # เดิม: if decision=="BUY" or score>=t_score
-                                # ปัญหา: ANALYST return "SELL" แต่ยิง BUY ไป
-                                # แก้: ถ้า ANALYST บอก "SELL" ชัดเจน → ห้ามยิง BUY ไม่ว่า score จะสูงแค่ไหน
+                                # ต้องการทั้ง decision=="BUY" AND score>=t_score
+                                # "HOLD" หรือ "SELL" ต้องไม่ trigger BUY ไม่ว่า score จะสูงแค่ไหน
                                 # ══════════════════════════════════════════════════════
-                                if ans.get('decision') == "BUY" or (ans.get('decision') != "SELL" and score >= t_score):
+                                if ans.get('decision') == "BUY" and score >= t_score:
                                     log = logging.getLogger(s)
                                     
                                     if agent3.is_cooldown_active(cooldown_minutes=5): 
@@ -433,6 +432,8 @@ async def trading_job():
                                         log.warning(f"🛑 [GUARDIAN-F] บล็อก! {s} Dead Hour"); continue
                                     if agent3.is_xau_h4_downtrend(s, macro_data.get('h4_trend', 'N/A')):
                                         log.warning(f"🛑 [GUARDIAN-I] บล็อก! {s} BUY — H4 DOWNTREND"); continue
+                                    if "DOWNTREND" in str(st_data.get('supertrend_h1', '')):
+                                        log.warning(f"🛑 [GUARDIAN-K] บล็อก! {s} BUY — H1 Supertrend DOWNTREND"); continue
                                     if agent3.is_score_blacklisted(s, score):
                                         log.warning(f"🛑 [GUARDIAN-H] บล็อก! Score={score} anomaly band"); continue
 
@@ -482,17 +483,16 @@ async def trading_job():
 
                                 # ── ดึง per-symbol score offset ──────────────────────
                                 sym_cfg = SYMBOLS_CONFIG.get(s, {})
-                                t_score = max(4, t_score + sym_cfg.get("analyst_score_offset", 0))
+                                t_score = max(5, t_score + sym_cfg.get("analyst_score_offset", 0))
 
                                 score = round(float(ans.get('score', 0)), 1)
                                 
                                 # ══════════════════════════════════════════════════════
                                 # [BUG FIX] ANALYST Decision check
-                                # เดิม: if decision=="SELL" or score>=t_score
-                                # ปัญหา: ANALYST return "BUY" แต่ยิง SELL ไป
-                                # แก้: ถ้า ANALYST บอก "BUY" ชัดเจน → ห้ามยิง SELL ไม่ว่า score จะสูงแค่ไหน
+                                # ต้องการทั้ง decision=="SELL" AND score>=t_score
+                                # "HOLD" หรือ "BUY" ต้องไม่ trigger SELL ไม่ว่า score จะสูงแค่ไหน
                                 # ══════════════════════════════════════════════════════
-                                if ans.get('decision') == "SELL" or (ans.get('decision') != "BUY" and score >= t_score):
+                                if ans.get('decision') == "SELL" and score >= t_score:
 
                                     log = logging.getLogger(s)
                                     

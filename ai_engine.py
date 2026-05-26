@@ -434,8 +434,8 @@ async def ai_analysis(symbol, price, rsi, st_data):
         direction_hint = (
             f"\n⚠️ DIRECTOR CONSTRAINT: allowed_direction = BUY_ONLY. "
             f"Evaluate ONLY BUY criteria. Do NOT decide SELL under any circumstance. "
-            f"If RSI is pulling back and H1 Supertrend is UPTREND, this is a BUY setup — score it as BUY. "
-            f"Supply zones are less relevant when the macro trend is strongly bullish."
+            f"BUY is valid ONLY when H1 Supertrend = UPTREND 🟢. "
+            f"If H1 Supertrend = DOWNTREND 🔴, output HOLD — never force BUY against H1 trend."
         )
     elif allowed_dir == "SELL_ONLY":
         direction_hint = (
