@@ -434,6 +434,12 @@ async def trading_job():
                                         log.warning(f"🛑 [GUARDIAN-I] บล็อก! {s} BUY — H4 DOWNTREND"); continue
                                     if "DOWNTREND" in str(st_data.get('supertrend_h1', '')):
                                         log.warning(f"🛑 [GUARDIAN-K] บล็อก! {s} BUY — H1 Supertrend DOWNTREND"); continue
+                                    if "DOWNTREND" in str(macro_data.get('d1_trend', '')):
+                                        log.warning(f"🛑 [GUARDIAN-L] บล็อก! {s} BUY — D1 DOWNTREND"); continue
+                                    if i > 0:
+                                        losing = [p for p in (positions or []) if p.type == mt5.ORDER_TYPE_BUY and p.profit < 0]
+                                        if losing:
+                                            log.warning(f"🛑 [GUARDIAN-P] บล็อก! L{i+1} — L{i} ยังขาดทุน ({losing[0].profit:.2f} USD)"); continue
                                     if agent3.is_score_blacklisted(s, score):
                                         log.warning(f"🛑 [GUARDIAN-H] บล็อก! Score={score} anomaly band"); continue
 
@@ -512,6 +518,12 @@ async def trading_job():
                                         log.warning(f"🛑 [GUARDIAN-G] บล็อก! {s} XAU SELL blocked (need SELL_ONLY)"); continue
                                     if agent3.is_score_blacklisted(s, score):
                                         log.warning(f"🛑 [GUARDIAN-H] บล็อก! Score={score} anomaly band"); continue
+                                    if "UPTREND" in str(macro_data.get('d1_trend', '')):
+                                        log.warning(f"🛑 [GUARDIAN-L] บล็อก! {s} SELL — D1 UPTREND"); continue
+                                    if i > 0:
+                                        losing = [p for p in (positions or []) if p.type == mt5.ORDER_TYPE_SELL and p.profit < 0]
+                                        if losing:
+                                            log.warning(f"🛑 [GUARDIAN-P] บล็อก! L{i+1} — L{i} ยังขาดทุน ({losing[0].profit:.2f} USD)"); continue
 
                                     log.info(f"🎯 [Python] ผ่านด่าน Agent 3 แล้ว! กำลังส่งคำสั่ง SELL → MT5 (SENTINEL OK)...")
                                     
@@ -772,6 +784,13 @@ def place_order(symbol, type, price, rsi, comment, extra=None):
         h4_trend=macro_data.get("h4_trend"),
         d1_trend=macro_data.get("d1_trend"),
     )
+
+    sym_cfg = SYMBOLS_CONFIG.get(symbol, {})
+    max_slip = sym_cfg.get('max_slip', 300)
+    if slippage > max_slip:
+        logging.getLogger(symbol).warning(f"🛑 [GUARDIAN-M] Slip {slippage:.0f}pts > {max_slip} — ปิดออเดอร์ทันที")
+        close_one_order(symbol=symbol, reason=f"GUARDIAN-M: slip {slippage:.0f}pts", ticket=res.order)
+        return False
 
     shared_state.ACTIVE_TRADE_TRACKER[res.order] = {"max_p": 0.0, "max_l": 0.0}
     return True

@@ -73,6 +73,9 @@ SYMBOLS_CONFIG = {
         # Max spread ที่ยอมรับได้ (BTC spread กว้างกว่า XAU)
         "max_spread_override": 8000,
 
+        # Max slippage (pts) — GUARDIAN-M ปิดออเดอร์ทันทีถ้า fill ห่างจาก price เกินนี้
+        "max_slip": 600,
+
         # Pullback detection — BTC pullback ลึกกว่า XAU
         "pullback_rsi_threshold": 42.0,  # RSI ต่ำกว่านี้ใน TRENDING_UP = Pullback entry
     },
@@ -99,6 +102,9 @@ SYMBOLS_CONFIG = {
 
         # XAU spread แคบกว่า
         "max_spread_override": 5000,
+
+        # Max slippage (pts) — GUARDIAN-M ปิดออเดอร์ทันทีถ้า fill ห่างจาก price เกินนี้
+        "max_slip": 300,
 
         # XAU pullback ไม่ลึกเท่า BTC
         "pullback_rsi_threshold": 45.0,
