@@ -693,6 +693,32 @@ async def trading_job_error(exc):
     error_msg = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
     logging.getLogger("System").error(f"🚨 [CRITICAL BUG] ระบบเทรดช็อตกระทันหัน:\n{error_msg}")
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Fast tick loop (every 10s) — updates max_p / max_l only, no MT5 order calls.
+# Lets the 1-min trailing SL react to intra-minute price peaks/troughs.
+# ─────────────────────────────────────────────────────────────────────────────
+@tasks.loop(seconds=10)
+async def fast_tick_job():
+    if not mt5.terminal_info():
+        return
+    positions = mt5.positions_get()
+    if not positions:
+        return
+    for pos in positions:
+        ticket = pos.ticket
+        if ticket not in shared_state.ACTIVE_TRADE_TRACKER:
+            continue
+        current_p = pos.profit + pos.swap
+        if current_p > shared_state.ACTIVE_TRADE_TRACKER[ticket]["max_p"]:
+            shared_state.ACTIVE_TRADE_TRACKER[ticket]["max_p"] = current_p
+        if current_p < shared_state.ACTIVE_TRADE_TRACKER[ticket]["max_l"]:
+            shared_state.ACTIVE_TRADE_TRACKER[ticket]["max_l"] = current_p
+
+@fast_tick_job.error
+async def fast_tick_job_error(exc):
+    import logging
+    logging.getLogger("System").warning(f"⚠️ [fast_tick] error: {exc}")
+
 def get_rsi(symbol):
     rates = mt5.copy_rates_from_pos(symbol, TIMEFRAME, 0, 100)
     if rates is None or len(rates) < 20: return None
@@ -718,7 +744,7 @@ def place_order(symbol, type, price, rsi, comment, extra=None):
     risk_level = getattr(shared_state, 'CURRENT_RISK_LEVEL', 3)
     base_pct = 0.001 
     sl_pct = base_pct * (1.0 + (3 - risk_level) * 0.2) 
-    tp_pct = sl_pct * 1.5
+    tp_pct = sl_pct * 1.0
 
     sl_dist = price * sl_pct
     tp_dist = price * tp_pct

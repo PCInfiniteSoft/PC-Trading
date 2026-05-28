@@ -26,6 +26,7 @@ async def on_ready():
     # 🌐 เริ่ม Web Dashboard ใน background thread
     webapp.start_web_server(port=8080)
     if not tm.trading_job.is_running(): tm.trading_job.start()
+    if not tm.fast_tick_job.is_running(): tm.fast_tick_job.start()
     if not scheduled_reports.is_running(): scheduled_reports.start()
     if mt5.terminal_info() is not None and app_instance is not None:
         app_instance.after(0, app_instance.start_bot)
