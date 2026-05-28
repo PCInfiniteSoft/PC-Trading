@@ -243,9 +243,9 @@ async def ai_update_strategy(symbol, win_loss_stats="N/A"):
 [BTC-Specific Rules]
 - BTC is highly volatile. ATR% is typically 0.06–0.19% per M5 candle (much wider than XAU).
 - RSI swings are wider for BTC. Add {rsi_buy_buffer} pts buffer to buy_levels (lower them by {rsi_buy_buffer}).
-- Add {rsi_sell_buffer} pts buffer to sell_levels (raise them by {rsi_sell_buffer}).
-- In TRENDING_UP regime: buy_levels should allow entry up to RSI ~50 on pullbacks.
+- In TRENDING_UP regime: buy_levels around RSI 40-52, sell_levels around RSI 62-72. Add {rsi_sell_buffer} pts to sell_levels.
 - In RANGING regime: buy_levels around RSI 35-42, sell_levels around RSI 58-65.
+- In TRENDING_DOWN regime: sell_levels around RSI 52-62. Do NOT push sell_levels above 65 — RSI rarely exceeds 65 in a downtrend.
 - Min ATR% to trade: {min_atr_pct}% — if ATR% < {min_atr_pct}, widen levels further.
 - Do NOT use tight levels like XAU. BTC requires wider RSI bands.
 """
@@ -285,7 +285,7 @@ You are the PC Trading strategy engine. Set RSI entry levels for {symbol} based 
 
 [Rules]
 1. buy_levels: 5 RSI values (descending) where BUY orders fire (e.g. [32,30,28,26,24])
-2. sell_levels: 5 RSI values (ascending) where SELL orders fire (e.g. [68,70,72,74,76])
+2. sell_levels: 5 RSI values (ascending) where SELL orders fire (e.g. [58,60,62,64,66])
 3. All values MUST be between 15 and 85. NEVER use 0 or 100.
 4. Widen levels if ATR% > 0.6 (volatile). Tighten if ATR% < 0.3 (quiet).
 5. regime: one of TRENDING_UP | TRENDING_DOWN | RANGING | PULLBACK | VOLATILE
