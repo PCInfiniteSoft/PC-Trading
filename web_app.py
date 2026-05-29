@@ -226,13 +226,22 @@ def static_files(filename):
 
 def start_web_server(host: str = "0.0.0.0", port: int = 8080):
     """เรียกจาก gui_main.py เพื่อรัน Flask ใน background thread"""
-    t = threading.Thread(
-        target=lambda: app.run(host=host, port=port, debug=False, use_reloader=False),
-        daemon=True, name="WebDashboard"
-    )
+    log = logging.getLogger("System")
+
+    def _run():
+        for attempt in range(10):
+            try:
+                app.run(host=host, port=port, debug=False, use_reloader=False)
+                return
+            except OSError:
+                if attempt < 9:
+                    log.warning(f"⚠️ Web Dashboard port {port} busy, retry {attempt+1}/10...")
+                    time.sleep(2)
+        log.error(f"❌ Web Dashboard ไม่สามารถ bind port {port} ได้หลัง 10 ครั้ง")
+
+    t = threading.Thread(target=_run, daemon=True, name="WebDashboard")
     t.start()
-    import logging
-    logging.getLogger("System").info(f"🌐 Web Dashboard เริ่มทำงานที่ http://localhost:{port}")
+    log.info(f"🌐 Web Dashboard เริ่มทำงานที่ http://localhost:{port}")
 
 
 if __name__ == "__main__":
