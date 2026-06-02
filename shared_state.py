@@ -32,3 +32,8 @@ REGIME_MIN_CONFIRMATIONS = 3   # ต้องเห็น regime เดิม 3 
 
 # Candle fingerprint — { symbol: last_candle_timestamp_int }
 LAST_CANDLE_TIME = {}
+
+# Pixel Agents — live state for dashboard canvas
+GUARDIAN_BLOCKED = False          # True briefly when any GUARDIAN gate fires
+GUARDIAN_BLOCK_REASON = ""        # e.g. "Spread too high", "Dead hour"
+ANALYST_BUSY = {}                 # { "BTCUSDm": True/False, "XAUUSDm": True/False }
