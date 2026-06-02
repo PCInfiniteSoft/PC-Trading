@@ -267,19 +267,24 @@ def _free_port(port: int):
 
 def start_web_server(host: str = "0.0.0.0", port: int = 8080):
     """เรียกจาก gui_main.py เพื่อรัน Flask ใน background thread"""
+    import sys
+    from werkzeug.serving import make_server
     log = logging.getLogger("System")
     _free_port(port)
 
     def _run():
-        for attempt in range(10):
+        for attempt in range(15):
             try:
-                app.run(host=host, port=port, debug=False, use_reloader=False)
+                srv = make_server(host, port, app)
+                log.info(f"✅ Web Dashboard bound to {host}:{port} (attempt {attempt+1})")
+                srv.serve_forever()
                 return
             except Exception as e:
-                if attempt < 9:
-                    log.warning(f"⚠️ Web Dashboard port {port} error ({type(e).__name__}), retry {attempt+1}/10...")
-                    time.sleep(2)
-        log.error(f"❌ Web Dashboard ไม่สามารถ bind port {port} ได้หลัง 10 ครั้ง")
+                msg = f"⚠️ Web Dashboard bind failed ({type(e).__name__}: {e}), retry {attempt+1}/15..."
+                log.warning(msg)
+                print(msg, file=sys.stderr, flush=True)
+                time.sleep(3)
+        log.error(f"❌ Web Dashboard ไม่สามารถ bind port {port} ได้หลัง 15 ครั้ง")
 
     t = threading.Thread(target=_run, daemon=True, name="WebDashboard")
     t.start()
