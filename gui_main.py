@@ -23,8 +23,6 @@ app_instance = None
 @bot.event
 async def on_ready():
     logging.getLogger("System").info("✅ Discord Bot Online")
-    # 🌐 เริ่ม Web Dashboard ใน background thread
-    webapp.start_web_server(port=8080)
     if not tm.trading_job.is_running(): tm.trading_job.start()
     if not tm.fast_tick_job.is_running(): tm.fast_tick_job.start()
     if not scheduled_reports.is_running(): scheduled_reports.start()
@@ -56,6 +54,7 @@ class PCTradingApp(ctk.CTk):
         else:
             logging.getLogger("System").error("❌ เชื่อมต่อ MT5 ล้มเหลว โปรดตรวจสอบว่าเปิดโปรแกรม MT5 ไว้หรือไม่")
             
+        webapp.start_web_server(port=8080)
         discord_manager.run_discord_bot_thread()
         self.update_dashboard()
         self.process_log_queue()

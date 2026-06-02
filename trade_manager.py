@@ -105,6 +105,7 @@ async def trading_job():
     if os.path.exists(DEPLOY_FLAG):
         os.remove(DEPLOY_FLAG)
         logging.getLogger("System").info("🔄 [DEPLOY] deploy.flag detected — restarting with new code...")
+        mt5.shutdown()
         os.execv(sys.executable, [sys.executable] + sys.argv)
 
     if check_daily_drawdown():
