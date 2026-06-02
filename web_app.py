@@ -79,6 +79,19 @@ def api_status():
     if _ai_engine is not None:
         data["ai_online"] = _ai_engine.AI_IS_ONLINE
         data["ai_error_code"] = _ai_engine.AI_ERROR_CODE
+        data["strategy_data"] = {
+            sym: {
+                "regime": v.get("regime", "N/A"),
+                "buy": v.get("buy", []),
+                "sell": v.get("sell", []),
+                "atr_pct": v.get("atr_pct", 0.0),
+            }
+            for sym, v in _ai_engine.STRATEGY_DATA.items()
+        }
+    if _shared_state is not None:
+        data["guardian_blocked"] = getattr(_shared_state, "GUARDIAN_BLOCKED", False)
+        data["guardian_block_reason"] = getattr(_shared_state, "GUARDIAN_BLOCK_REASON", "")
+        data["analyst_busy"] = getattr(_shared_state, "ANALYST_BUSY", {})
     with _log_lock:
         data["logs"] = list(reversed(_log_buffer[-50:]))
     return jsonify(data)
