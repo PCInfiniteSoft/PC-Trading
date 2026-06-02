@@ -238,8 +238,9 @@ def static_files(filename):
 # ══════════════════════════════════════════════════════════════
 
 def _free_port(port: int):
-    """Kill any process holding the given port (Windows only)."""
+    """Kill any process holding the given port, then wait for OS to release sockets."""
     import subprocess, os as _os
+    killed = False
     try:
         r = subprocess.run(
             ["netstat", "-ano"], capture_output=True, text=True, timeout=5
@@ -256,8 +257,12 @@ def _free_port(port: int):
                     logging.getLogger("System").warning(
                         f"⚠️ Web Dashboard killed stale listener PID {pid} on port {port}"
                     )
+                    killed = True
     except Exception as e:
         logging.getLogger("System").warning(f"⚠️ _free_port error: {e}")
+    if killed:
+        # Give Windows time to release the socket before Flask tries to bind
+        time.sleep(5)
 
 
 def start_web_server(host: str = "0.0.0.0", port: int = 8080):
