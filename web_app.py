@@ -237,18 +237,42 @@ def static_files(filename):
 # Entry point
 # ══════════════════════════════════════════════════════════════
 
+def _free_port(port: int):
+    """Kill any process holding the given port (Windows only)."""
+    import subprocess, os as _os
+    try:
+        r = subprocess.run(
+            ["netstat", "-ano"], capture_output=True, text=True, timeout=5
+        )
+        for line in r.stdout.splitlines():
+            if f":{port}" in line and "LISTENING" in line:
+                parts = line.split()
+                pid = int(parts[-1])
+                if pid != _os.getpid():
+                    subprocess.run(
+                        ["taskkill", "/F", "/PID", str(pid)],
+                        capture_output=True, timeout=5
+                    )
+                    logging.getLogger("System").warning(
+                        f"⚠️ Web Dashboard killed stale listener PID {pid} on port {port}"
+                    )
+    except Exception as e:
+        logging.getLogger("System").warning(f"⚠️ _free_port error: {e}")
+
+
 def start_web_server(host: str = "0.0.0.0", port: int = 8080):
     """เรียกจาก gui_main.py เพื่อรัน Flask ใน background thread"""
     log = logging.getLogger("System")
+    _free_port(port)
 
     def _run():
         for attempt in range(10):
             try:
                 app.run(host=host, port=port, debug=False, use_reloader=False)
                 return
-            except OSError:
+            except Exception as e:
                 if attempt < 9:
-                    log.warning(f"⚠️ Web Dashboard port {port} busy, retry {attempt+1}/10...")
+                    log.warning(f"⚠️ Web Dashboard port {port} error ({type(e).__name__}), retry {attempt+1}/10...")
                     time.sleep(2)
         log.error(f"❌ Web Dashboard ไม่สามารถ bind port {port} ได้หลัง 10 ครั้ง")
 
