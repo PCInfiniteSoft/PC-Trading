@@ -483,6 +483,7 @@ async def ai_analysis(symbol, price, rsi, st_data):
         f"Output JSON ONLY: {{\"score\": int, \"decision\": \"BUY/SELL/HOLD\", \"reason\": \"string\"}}"
     )
 
+    shared_state.ANALYST_BUSY[symbol] = True
     try:
         response = await client.chat.completions.create(
             model="gpt-4o-mini",
@@ -510,6 +511,8 @@ async def ai_analysis(symbol, price, rsi, st_data):
         AI_ERROR_CODE = re.search(r"\d{3}", str(e)).group() if re.search(r"\d{3}", str(e)) else "Err"
         logging.getLogger(symbol).warning(f"⚠️ [ANALYST] Error: {e}")
         return {"score": 0, "decision": "HOLD", "reason": "ANALYST offline (safety block)"}
+    finally:
+        shared_state.ANALYST_BUSY[symbol] = False
 
 
 # ══════════════════════════════════════════════════════════════════
