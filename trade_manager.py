@@ -388,18 +388,41 @@ async def trading_job():
                     allowed_dir = macro_data.get('allowed_direction', 'BOTH')
                     
                     if allowed_dir in ["BUY_ONLY", "BOTH"]:
-                        # Gate J: daily budget check (before GPT call to avoid waste)
+                        log = logging.getLogger(s)
+
+                        # Pre-flight: deterministic guards before any AI call.
+                        # Global guards use break (RSI<buy and RSI>sell are mutually exclusive,
+                        # so breaking BUY layers never suppresses valid SELL entries).
                         if agent3.is_daily_budget_exhausted(DAILY_LOSS_LIMIT):
-                            logging.getLogger(s).warning(f"🛑 [GUARDIAN-J] บล็อก! Daily budget exhausted — ไม่เปิด BUY {s}"); continue
+                            log.warning(f"🛑 [GUARDIAN-J] บล็อก! Daily budget exhausted — ไม่เปิด BUY {s}"); break
+                        if agent3.is_cooldown_active(cooldown_minutes=5):
+                            log.warning("⏳ [GUARDIAN] บล็อก! ติด Cooldown (after SL)"); continue
+                        if agent3.is_against_trend(s, "BUY"):
+                            log.warning("🛑 [GUARDIAN] บล็อก! BUY สวนนโยบาย DIRECTOR"); break
+                        if agent3.is_spread_too_high(s, strat.get('max_spread', 5000)):
+                            log.warning(f"⚠️ [GUARDIAN] บล็อก! Spread กว้างเกิน"); break
+                        if agent3.is_max_layers_hit(s, "BUY"):
+                            log.warning(f"🛑 [GUARDIAN] บล็อก! ถึงขีดจำกัด {s} BUY layers"); break
+                        if agent3.is_btc_dead_hour(s):
+                            log.warning(f"🛑 [GUARDIAN-E] บล็อก! {s} Dead Hour (UTC 00-01)"); break
+                        if agent3.is_xau_dead_hour(s, macro_data.get('bias', '')):
+                            log.warning(f"🛑 [GUARDIAN-F] บล็อก! {s} Dead Hour"); break
+                        if agent3.is_xau_h4_downtrend(s, macro_data.get('h4_trend', 'N/A')):
+                            log.warning(f"🛑 [GUARDIAN-I] บล็อก! {s} BUY — H4 DOWNTREND"); break
+                        if "DOWNTREND" in str(macro_data.get('d1_trend', '')):
+                            log.warning(f"🛑 [GUARDIAN-L] บล็อก! {s} BUY — D1 DOWNTREND"); break
+
+                        st_data = adv.get_3_indicators(s)
+                        if "DOWNTREND" in str(st_data.get('supertrend_h1', '')):
+                            log.warning(f"🛑 [GUARDIAN-K] บล็อก! {s} BUY — H1 Supertrend DOWNTREND"); break
 
                         scout = adv.get_scout_score(s, "BUY")
-                        logging.getLogger(s).info(f"🔭 [SCOUT] BUY pre-check — {scout['reason']}")
+                        log.info(f"🔭 [SCOUT] BUY pre-check — {scout['reason']}")
                         if ai.AI_IS_ONLINE:
                             tick = mt5.symbol_info_tick(s)
                             if tick is not None:
-                                st_data = adv.get_3_indicators(s) 
                                 ans = await ai.ai_analysis(s, tick.ask, rsi, st_data)
-                                logging.getLogger(s).info(f"🧠 [ANALYST] Score: {ans.get('score')} | Action: {ans.get('decision')} | Reason: {ans.get('reason')}")
+                                log.info(f"🧠 [ANALYST] Score: {ans.get('score')} | Action: {ans.get('decision')} | Reason: {ans.get('reason')}")
 
                                 risk = getattr(shared_state, 'CURRENT_RISK_LEVEL', 3)
                                 t_score = 4 if risk == 5 else 5 if risk == 4 else 6 if risk == 3 else 7 if risk == 2 else 8
@@ -409,33 +432,13 @@ async def trading_job():
                                 t_score = max(5, t_score + sym_cfg.get("analyst_score_offset", 0))
 
                                 score = round(float(ans.get('score', 0)), 1)
-                                
+
                                 # ══════════════════════════════════════════════════════
                                 # [BUG FIX] ANALYST Decision check
                                 # ต้องการทั้ง decision=="BUY" AND score>=t_score
                                 # "HOLD" หรือ "SELL" ต้องไม่ trigger BUY ไม่ว่า score จะสูงแค่ไหน
                                 # ══════════════════════════════════════════════════════
                                 if ans.get('decision') == "BUY" and score >= t_score:
-                                    log = logging.getLogger(s)
-                                    
-                                    if agent3.is_cooldown_active(cooldown_minutes=5): 
-                                        log.warning("⏳ [GUARDIAN] บล็อก! ติด Cooldown (after SL)"); continue
-                                    if agent3.is_against_trend(s, "BUY"): 
-                                        log.warning("🛑 [GUARDIAN] บล็อก! BUY สวนนโยบาย DIRECTOR"); continue
-                                    if agent3.is_spread_too_high(s, strat.get('max_spread', 5000)): 
-                                        log.warning(f"⚠️ [GUARDIAN] บล็อก! Spread กว้างเกิน"); continue
-                                    if agent3.is_max_layers_hit(s, "BUY"):
-                                        log.warning(f"🛑 [GUARDIAN] บล็อก! ถึงขีดจำกัด {s} BUY layers"); continue
-                                    if agent3.is_btc_dead_hour(s):
-                                        log.warning(f"🛑 [GUARDIAN-E] บล็อก! {s} Dead Hour (UTC 00-01)"); continue
-                                    if agent3.is_xau_dead_hour(s, macro_data.get('bias', '')):
-                                        log.warning(f"🛑 [GUARDIAN-F] บล็อก! {s} Dead Hour"); continue
-                                    if agent3.is_xau_h4_downtrend(s, macro_data.get('h4_trend', 'N/A')):
-                                        log.warning(f"🛑 [GUARDIAN-I] บล็อก! {s} BUY — H4 DOWNTREND"); continue
-                                    if "DOWNTREND" in str(st_data.get('supertrend_h1', '')):
-                                        log.warning(f"🛑 [GUARDIAN-K] บล็อก! {s} BUY — H1 Supertrend DOWNTREND"); continue
-                                    if "DOWNTREND" in str(macro_data.get('d1_trend', '')):
-                                        log.warning(f"🛑 [GUARDIAN-L] บล็อก! {s} BUY — D1 DOWNTREND"); continue
                                     if i > 0:
                                         losing = [p for p in (positions or []) if p.type == mt5.ORDER_TYPE_BUY and p.profit < 0]
                                         if losing:
@@ -444,7 +447,7 @@ async def trading_job():
                                         log.warning(f"🛑 [GUARDIAN-H] บล็อก! Score={score} anomaly band"); continue
 
                                     log.info(f"🎯 [Python] ผ่านด่าน Agent 3 แล้ว! กำลังส่งคำสั่ง BUY → MT5 (SENTINEL OK)...")
-                                    
+
                                     sym_info = mt5.symbol_info(s)
                                     spread_now = round((tick.ask - tick.bid) / sym_info.point, 1) if sym_info else None
                                     if place_order(s, "BUY", tick.ask, rsi, f"L{i+1}:Score={score}",
@@ -471,19 +474,37 @@ async def trading_job():
                     allowed_dir = macro_data.get('allowed_direction', 'BOTH')
                     
                     if allowed_dir in ["SELL_ONLY", "BOTH"]:
-                        # Gate J: daily budget check (before GPT call to avoid waste)
-                        if agent3.is_daily_budget_exhausted(DAILY_LOSS_LIMIT):
-                            logging.getLogger(s).warning(f"🛑 [GUARDIAN-J] บล็อก! Daily budget exhausted — ไม่เปิด SELL {s}"); continue
+                        log = logging.getLogger(s)
 
+                        # Pre-flight: deterministic guards before any AI call.
+                        if agent3.is_daily_budget_exhausted(DAILY_LOSS_LIMIT):
+                            log.warning(f"🛑 [GUARDIAN-J] บล็อก! Daily budget exhausted — ไม่เปิด SELL {s}"); break
+                        if agent3.is_cooldown_active(cooldown_minutes=5):
+                            log.warning("⏳ [GUARDIAN] บล็อก! ติด Cooldown (after SL)"); continue
+                        if agent3.is_against_trend(s, "SELL"):
+                            log.warning("🛑 [GUARDIAN] บล็อก! SELL สวนนโยบาย DIRECTOR"); break
+                        if agent3.is_spread_too_high(s, strat.get('max_spread', 5000)):
+                            log.warning(f"⚠️ [GUARDIAN] บล็อก! Spread กว้างเกิน"); break
+                        if agent3.is_max_layers_hit(s, "SELL"):
+                            log.warning(f"🛑 [GUARDIAN] บล็อก! ถึงขีดจำกัด {s} SELL layers"); break
+                        if agent3.is_btc_dead_hour(s):
+                            log.warning(f"🛑 [GUARDIAN-E] บล็อก! {s} Dead Hour (UTC 00-01)"); break
+                        if agent3.is_xau_dead_hour(s, macro_data.get('bias', '')):
+                            log.warning(f"🛑 [GUARDIAN-F] บล็อก! {s} Dead Hour"); break
+                        if agent3.is_xau_sell_blocked(s, "SELL", allowed_dir):
+                            log.warning(f"🛑 [GUARDIAN-G] บล็อก! {s} XAU SELL blocked (need SELL_ONLY)"); break
+                        if "UPTREND" in str(macro_data.get('d1_trend', '')):
+                            log.warning(f"🛑 [GUARDIAN-L] บล็อก! {s} SELL — D1 UPTREND"); break
+
+                        st_data = adv.get_3_indicators(s)
                         scout = adv.get_scout_score(s, "SELL")
-                        logging.getLogger(s).info(f"🔭 [SCOUT] SELL pre-check — {scout['reason']}")
+                        log.info(f"🔭 [SCOUT] SELL pre-check — {scout['reason']}")
                         if ai.AI_IS_ONLINE:
                             tick = mt5.symbol_info_tick(s)
                             if tick is not None:
-                                st_data = adv.get_3_indicators(s) 
                                 ans = await ai.ai_analysis(s, tick.bid, rsi, st_data)
-                                logging.getLogger(s).info(f"🧠 [ANALYST] Score: {ans.get('score')} | Action: {ans.get('decision')} | Reason: {ans.get('reason')}")
-                                
+                                log.info(f"🧠 [ANALYST] Score: {ans.get('score')} | Action: {ans.get('decision')} | Reason: {ans.get('reason')}")
+
                                 risk = getattr(shared_state, 'CURRENT_RISK_LEVEL', 3)
                                 t_score = 4 if risk == 5 else 5 if risk == 4 else 6 if risk == 3 else 7 if risk == 2 else 8
 
@@ -492,41 +513,22 @@ async def trading_job():
                                 t_score = max(5, t_score + sym_cfg.get("analyst_score_offset", 0))
 
                                 score = round(float(ans.get('score', 0)), 1)
-                                
+
                                 # ══════════════════════════════════════════════════════
                                 # [BUG FIX] ANALYST Decision check
                                 # ต้องการทั้ง decision=="SELL" AND score>=t_score
                                 # "HOLD" หรือ "BUY" ต้องไม่ trigger SELL ไม่ว่า score จะสูงแค่ไหน
                                 # ══════════════════════════════════════════════════════
                                 if ans.get('decision') == "SELL" and score >= t_score:
-
-                                    log = logging.getLogger(s)
-                                    
-                                    if agent3.is_cooldown_active(cooldown_minutes=5): 
-                                        log.warning("⏳ [GUARDIAN] บล็อก! ติด Cooldown (after SL)"); continue
-                                    if agent3.is_against_trend(s, "SELL"): 
-                                        log.warning("🛑 [GUARDIAN] บล็อก! SELL สวนนโยบาย DIRECTOR"); continue
-                                    if agent3.is_spread_too_high(s, strat.get('max_spread', 5000)): 
-                                        log.warning(f"⚠️ [GUARDIAN] บล็อก! Spread กว้างเกิน"); continue
-                                    if agent3.is_max_layers_hit(s, "SELL"):
-                                        log.warning(f"🛑 [GUARDIAN] บล็อก! ถึงขีดจำกัด {s} SELL layers"); continue
-                                    if agent3.is_btc_dead_hour(s):
-                                        log.warning(f"🛑 [GUARDIAN-E] บล็อก! {s} Dead Hour (UTC 00-01)"); continue
-                                    if agent3.is_xau_dead_hour(s, macro_data.get('bias', '')):
-                                        log.warning(f"🛑 [GUARDIAN-F] บล็อก! {s} Dead Hour"); continue
-                                    if agent3.is_xau_sell_blocked(s, "SELL", allowed_dir):
-                                        log.warning(f"🛑 [GUARDIAN-G] บล็อก! {s} XAU SELL blocked (need SELL_ONLY)"); continue
                                     if agent3.is_score_blacklisted(s, score):
                                         log.warning(f"🛑 [GUARDIAN-H] บล็อก! Score={score} anomaly band"); continue
-                                    if "UPTREND" in str(macro_data.get('d1_trend', '')):
-                                        log.warning(f"🛑 [GUARDIAN-L] บล็อก! {s} SELL — D1 UPTREND"); continue
                                     if i > 0:
                                         losing = [p for p in (positions or []) if p.type == mt5.ORDER_TYPE_SELL and p.profit < 0]
                                         if losing:
                                             log.warning(f"🛑 [GUARDIAN-P] บล็อก! L{i+1} — L{i} ยังขาดทุน ({losing[0].profit:.2f} USD)"); continue
 
                                     log.info(f"🎯 [Python] ผ่านด่าน Agent 3 แล้ว! กำลังส่งคำสั่ง SELL → MT5 (SENTINEL OK)...")
-                                    
+
                                     sym_info = mt5.symbol_info(s)
                                     spread_now = round((tick.bid - tick.ask) / sym_info.point * -1, 1) if sym_info else None
                                     if place_order(s, "SELL", tick.bid, rsi, f"L{i+1}:Score={score}",
