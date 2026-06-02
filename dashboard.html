@@ -609,6 +609,14 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
   <!-- Macro -->
   <div class="sec-title">Macro Data</div>
   <div id="macro-list"></div>
+  <!-- Trading Floor -->
+  <div class="sec-title" style="display:flex;align-items:center;gap:6px">
+    <span style="width:6px;height:6px;border-radius:50%;background:#00e676;display:inline-block;animation:pulse 1.5s infinite"></span>
+    Trading Floor
+  </div>
+  <div style="padding:4px 6px;background:#0a0e0b;border-bottom:1px solid var(--border)">
+    <canvas id="pixelAgents" style="width:100%;display:block;image-rendering:pixelated"></canvas>
+  </div>
   <!-- Top Gainers -->
   <div class="sec-title">Top Gainers <span class="cnt">24h</span></div>
   <div id="gainers-list" style="overflow-y:auto;max-height:150px;"></div>
@@ -1136,6 +1144,12 @@ function renderAgents(d, newsCal){
 // ── First render + auto-refresh every 5s ──
 fetchAndRender();
 setInterval(fetchAndRender, 5000);
+</script>
+<script src="pixel_agents.js"></script>
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    initPixelAgents('pixelAgents');
+  });
 </script>
 </body>
 </html>
