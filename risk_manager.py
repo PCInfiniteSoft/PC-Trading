@@ -31,6 +31,18 @@ class RiskManager:
     def __init__(self, db_path="trading_history.db"):
         self.db_path = db_path
 
+    @staticmethod
+    def _set_blocked(reason: str):
+        import shared_state as _ss
+        _ss.GUARDIAN_BLOCKED = True
+        _ss.GUARDIAN_BLOCK_REASON = reason
+
+    @staticmethod
+    def _clear_blocked():
+        import shared_state as _ss
+        _ss.GUARDIAN_BLOCKED = False
+        _ss.GUARDIAN_BLOCK_REASON = ""
+
     # ══════════════════════════════════════════════════════════════
     #  [UPGRADE #3] Cooldown: only block after SL, not after TP
     # ══════════════════════════════════════════════════════════════
@@ -147,11 +159,13 @@ class RiskManager:
             threshold = max(ai_limit, atr_limit) if atr_limit else ai_limit
 
             if current_spread > threshold:
+                self._set_blocked(f"Spread {current_spread}>{threshold}")
                 log.warning(
                     f"🛑 [GUARDIAN] Spread too wide — {current_spread} > {threshold} "
                     f"(AI:{ai_limit} | ATR-based:{atr_limit}) [{symbol}]")
                 return True
 
+            self._clear_blocked()
             log.info(
                 f"✅ [GUARDIAN] Spread OK — {current_spread}/{threshold} pts "
                 f"(AI:{ai_limit} | ATR:{atr_limit}) [{symbol}]")
@@ -206,6 +220,7 @@ class RiskManager:
             return False
         utc_hour = datetime.utcnow().hour
         if utc_hour in (0, 1):
+            self._set_blocked(f"BTC dead hour UTC {utc_hour:02d}")
             _log.warning(f"🛑 [GUARDIAN-E] Blocked {symbol} — dead hour UTC {utc_hour:02d}:xx")
             return True
         return False
@@ -225,6 +240,7 @@ class RiskManager:
         if utc_hour == 0 and macro_bias and "STRONG_BULLISH" in str(macro_bias):
             return False
         if utc_hour in (0, 1, 9, 11, 13, 17, 18, 19, 20):
+            self._set_blocked(f"XAU dead hour UTC {utc_hour:02d}")
             _log.warning(f"🛑 [GUARDIAN-F] Blocked {symbol} — dead hour UTC {utc_hour:02d}:xx")
             return True
         return False
@@ -240,6 +256,7 @@ class RiskManager:
         if not self._is_xau(symbol):
             return False
         if str(order_type).upper() == "SELL" and allowed_dir != "SELL_ONLY":
+            self._set_blocked(f"XAU SELL blocked (dir={allowed_dir})")
             _log.warning(
                 f"🛑 [GUARDIAN-G] Blocked {symbol} SELL — allowed_dir={allowed_dir} (need SELL_ONLY)")
             return True
@@ -254,6 +271,7 @@ class RiskManager:
         if not self._is_xau(symbol):
             return False
         if "DOWNTREND" in str(h4_trend).upper():
+            self._set_blocked(f"XAU H4 downtrend")
             _log.warning(f"🛑 [GUARDIAN-I] Blocked {symbol} BUY — H4 trend={h4_trend}")
             return True
         return False
@@ -265,6 +283,7 @@ class RiskManager:
     def is_score_blacklisted(self, symbol, score):
         """[GUARDIAN] Block score=8 entries (WR 15.8% — anomalous band)."""
         if int(score) == 8:
+            self._set_blocked(f"Score {score} blacklisted")
             _log.warning(f"🛑 [GUARDIAN-H] Blocked {symbol} — score={score} blacklisted")
             return True
         return False
