@@ -237,32 +237,46 @@ def static_files(filename):
 # Entry point
 # ══════════════════════════════════════════════════════════════
 
-def _free_port(port: int):
-    """Kill any process holding the given port, then wait for OS to release sockets."""
+def _free_port(port: int, wait_timeout: int = 60):
+    """Kill stale listeners on port, then poll until the port is actually free."""
     import subprocess, os as _os
-    killed = False
-    try:
-        r = subprocess.run(
-            ["netstat", "-ano"], capture_output=True, text=True, timeout=5
-        )
-        for line in r.stdout.splitlines():
-            if f":{port}" in line and "LISTENING" in line:
-                parts = line.split()
-                pid = int(parts[-1])
-                if pid != _os.getpid():
-                    subprocess.run(
-                        ["taskkill", "/F", "/PID", str(pid)],
-                        capture_output=True, timeout=5
-                    )
-                    logging.getLogger("System").warning(
-                        f"⚠️ Web Dashboard killed stale listener PID {pid} on port {port}"
-                    )
-                    killed = True
-    except Exception as e:
-        logging.getLogger("System").warning(f"⚠️ _free_port error: {e}")
-    if killed:
-        # Give Windows time to release the socket before Flask tries to bind
-        time.sleep(5)
+    log = logging.getLogger("System")
+
+    def _listening_pids():
+        try:
+            r = subprocess.run(["netstat", "-ano"], capture_output=True, text=True, timeout=5)
+            pids = []
+            for line in r.stdout.splitlines():
+                if f":{port}" in line and "LISTENING" in line:
+                    parts = line.split()
+                    try:
+                        pids.append(int(parts[-1]))
+                    except ValueError:
+                        pass
+            return pids
+        except Exception:
+            return []
+
+    # Kill all listeners except self
+    for pid in _listening_pids():
+        if pid != _os.getpid():
+            try:
+                subprocess.run(["taskkill", "/F", "/PID", str(pid)],
+                               capture_output=True, timeout=5)
+                log.warning(f"⚠️ Web Dashboard killed stale listener PID {pid} on port {port}")
+            except Exception:
+                pass
+
+    # Poll until port is truly free (no LISTENING socket)
+    deadline = time.time() + wait_timeout
+    while time.time() < deadline:
+        pids = _listening_pids()
+        foreign = [p for p in pids if p != _os.getpid()]
+        if not foreign:
+            return  # Port is free — proceed
+        time.sleep(1)
+
+    log.warning(f"⚠️ Port {port} still occupied after {wait_timeout}s — proceeding anyway")
 
 
 def start_web_server(host: str = "0.0.0.0", port: int = 8080):
