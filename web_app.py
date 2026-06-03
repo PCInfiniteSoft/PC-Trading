@@ -293,11 +293,14 @@ def start_web_server(host: str = "0.0.0.0", port: int = 8080):
                 log.info(f"✅ Web Dashboard bound to {host}:{port} (attempt {attempt+1})")
                 srv.serve_forever()
                 return
-            except Exception as e:
-                msg = f"⚠️ Web Dashboard bind failed ({type(e).__name__}: {e}), retry {attempt+1}/15..."
+            except BaseException as e:
+                msg = f"⚠️ Web Dashboard crashed ({type(e).__name__}: {e}), retry {attempt+1}/15..."
                 log.warning(msg)
                 print(msg, file=sys.stderr, flush=True)
-                time.sleep(3)
+                if isinstance(e, (SystemExit, KeyboardInterrupt)):
+                    time.sleep(3)
+                else:
+                    time.sleep(3)
         log.error(f"❌ Web Dashboard ไม่สามารถ bind port {port} ได้หลัง 15 ครั้ง")
 
     t = threading.Thread(target=_run, daemon=True, name="WebDashboard")
