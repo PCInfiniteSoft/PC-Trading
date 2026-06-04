@@ -6,7 +6,8 @@ Checks (in order):
   1. is_cooldown_active        — only blocks after SL hit, NOT after TP  [UPGRADE #3]
   2. is_against_trend          — DIRECTOR policy alignment
   3. is_spread_too_high        — dynamic spread filter
-  4. is_max_layers_hit         — prevents martingale runaway  [UPGRADE #9]
+  4. is_max_layers_hit         — prevents martingale runaway, per-symbol cap (XAU=2) [UPGRADE #9]
+  4b. is_layer_too_soon        — min spacing between same-dir layers (anti-pyramid) [Gate Q]
   5. is_btc_dead_hour          — block BTC UTC 00-01 (Asian dead zone)   [S3A Gate E]
   6. is_xau_dead_hour          — block XAU low-WR hours, UTC 00 exempt if STRONG_BULLISH [S3A Gate F]
   7. is_xau_sell_blocked       — XAU SELL only when DIRECTOR=SELL_ONLY   [S3A Gate G]
@@ -25,6 +26,22 @@ _log = logging.getLogger("System")
 
 # ── Max open layers per symbol to prevent martingale runaway ──────
 MAX_LAYERS_PER_SYMBOL = 3   # [UPGRADE #9] was effectively 5 (no limit)
+# XAU pyramids into shared stop zones (3 shorts → one stop, 2026-06-04), so it
+# gets a tighter cap than BTC. With Gate Q spacing, a tight burst is thinned to
+# 2 layers (the mid attempt is dropped); this cap then hard-limits XAU to 2
+# concurrent same-direction layers so a 3rd can never open.
+MAX_LAYERS_XAU = 2
+
+
+def _max_layers_for(symbol):
+    return MAX_LAYERS_XAU if "XAU" in str(symbol).upper() else MAX_LAYERS_PER_SYMBOL
+
+# ── Min spacing between same-direction layers (anti-pyramid) ──────
+# [Gate Q] Prevents stacking multiple layers into a shared stop zone within
+# minutes. Live failure 2026-06-04: 3 XAU shorts opened 06:00/06:10/06:15 all
+# stopped together at 08:56 (-11.51). GUARDIAN-P missed it because each prior
+# layer was still in profit at stack time (pyramid into winner, not average-down).
+MIN_LAYER_SPACING_MINUTES = 10
 
 
 class RiskManager:
@@ -179,16 +196,22 @@ class RiskManager:
     #  [UPGRADE #9] Max layers per symbol — prevent martingale runaway
     # ══════════════════════════════════════════════════════════════
 
-    def is_max_layers_hit(self, symbol, order_type, max_layers=MAX_LAYERS_PER_SYMBOL):
+    def is_max_layers_hit(self, symbol, order_type, max_layers=None, positions=None):
         """
         [GUARDIAN] Block new order if the number of open positions for
         this symbol + direction already reaches max_layers.
         Prevents the 5-layer RSI system from compounding losses indefinitely.
+
+        max_layers defaults to a per-symbol cap (XAU=2, others=3).
+        `positions` is injectable for testing.
         """
         import logging
         log = logging.getLogger("System")
+        if max_layers is None:
+            max_layers = _max_layers_for(symbol)
         try:
-            positions = mt5.positions_get(symbol=symbol) or []
+            if positions is None:
+                positions = mt5.positions_get(symbol=symbol) or []
             order     = str(order_type).upper()
             mt5_type  = mt5.ORDER_TYPE_BUY if order == "BUY" else mt5.ORDER_TYPE_SELL
             count     = sum(1 for p in positions if p.type == mt5_type)
@@ -205,6 +228,58 @@ class RiskManager:
         except Exception as e:
             logging.getLogger("System").warning(f"⚠️ [GUARDIAN] max_layers check error: {e}")
             return False  # fail-open: don't block if MT5 unresponsive
+
+    # ══════════════════════════════════════════════════════════════
+    #  Gate Q — Min spacing between same-direction layers (anti-pyramid)
+    # ══════════════════════════════════════════════════════════════
+
+    def is_layer_too_soon(self, symbol, order_type,
+                          min_minutes=MIN_LAYER_SPACING_MINUTES,
+                          positions=None, now_ts=None):
+        """[GUARDIAN-Q] Block a new same-direction layer if the most recent
+        OPEN layer for this symbol+direction was opened less than `min_minutes`
+        ago. Stops rapid pyramiding into a shared stop zone.
+
+        Uses MT5 server-time POSIX timestamps on BOTH sides (position.time vs
+        symbol_info_tick.time) so there is no local-vs-server timezone skew.
+        `positions` / `now_ts` are injectable for testing.
+        Fail-open: if MT5 is unreadable, don't block.
+        """
+        import logging
+        log = logging.getLogger("System")
+        try:
+            if positions is None:
+                positions = mt5.positions_get(symbol=symbol) or []
+            order    = str(order_type).upper()
+            mt5_type = mt5.ORDER_TYPE_BUY if order == "BUY" else mt5.ORDER_TYPE_SELL
+            same     = [p for p in positions if p.type == mt5_type]
+            if not same:
+                return False
+
+            last_open = max(int(p.time) for p in same)   # POSIX server time (s)
+
+            if now_ts is None:
+                tick = mt5.symbol_info_tick(symbol)
+                if not (tick and tick.time):
+                    return False   # fail-open: can't compare clocks safely
+                now_ts = int(tick.time)
+
+            elapsed_min = (now_ts - last_open) / 60.0
+            if elapsed_min < min_minutes:
+                self._set_blocked(f"Layer spacing {elapsed_min:.1f}m<{min_minutes}m")
+                log.warning(
+                    f"🛑 [GUARDIAN-Q] Blocked {symbol} {order} — last layer "
+                    f"{elapsed_min:.1f}m ago (< {min_minutes}m spacing)")
+                return True
+
+            log.info(
+                f"✅ [GUARDIAN-Q] Layer spacing OK — {symbol} {order}: "
+                f"{elapsed_min:.1f}m since last layer")
+            return False
+
+        except Exception as e:
+            log.warning(f"⚠️ [GUARDIAN-Q] layer spacing check error: {e}")
+            return False   # fail-open
 
     # ══════════════════════════════════════════════════════════════
     #  [S3A] Gate E — BTC Dead-Hour Block
