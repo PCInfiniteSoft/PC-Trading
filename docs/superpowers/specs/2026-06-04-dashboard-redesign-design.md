@@ -1,7 +1,7 @@
 # Dashboard Redesign — Modern Fintech + Declutter
 
 **Date:** 2026-06-04
-**Status:** Design (approved direction, pending spec review)
+**Status:** Implemented on branch `dashboard-redesign` (unmerged) — see Progress section
 **File touched:** `dashboard.html` (single file: HTML + `<style>` + `<script>`)
 
 ## Problem
@@ -135,3 +135,20 @@ on canvas in the center placeholder; characters = agents with live
 busy/idle/online status and event reactions, fed by `/api/status` + a log/event
 feed. Asset pack (e.g. LimeZu Modern Office, itch.io) acquired by the user under
 appropriate license. Separate spec.
+
+## Progress (as of 2026-06-04)
+
+**DONE** — implemented on branch `dashboard-redesign` (off main, 8 commits, head `c33a386e`), NOT merged. Executed via subagent-driven development (plan `docs/superpowers/plans/2026-06-04-dashboard-redesign.md`), all 6 tasks + 2 review follow-ups:
+- Modern Fintech design tokens + card depth
+- Topbar decluttered to identity+status (removed 11 duplicate readouts + their JS updaters)
+- Left column cards; regime folded into Risk/DD card
+- Center KPIs; removed `s-risk` duplicate; relocated `pixelAgents` canvas to center placeholder
+- Right column single-home Symbols; Macro restyle
+- Responsive pass; relabel Drawdown KPI; mobile KPI `!important` fix
+- Verified STATIC only (div balance proven, zero dangling JS refs, scope clean, CSS valid) + opus final review = APPROVED_WITH_FOLLOWUPS. Repo tests 10/10.
+
+**PENDING:**
+- Live browser verification — run `web_app.py` → `localhost:8080`, confirm no console errors + each metric renders once (not done; no browser in dev env).
+- Merge branch → main, then deploy (push → server `git pull` → `deploy.flag`) per `CLAUDE.md`.
+- Cosmetic follow-ups (non-blocking): ~20 old `rgba()` accent tints (badges/regime) don't match new `--green`/`--red` hex; dead CSS `.regime-wrap` / `.sym-cards`.
+- Sub-project #2 (Reactive Virtual Office) not started — needs its own spec.
