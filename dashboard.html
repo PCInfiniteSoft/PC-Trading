@@ -59,6 +59,13 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
 .track{height:5px;background:var(--bg4);border-radius:3px;overflow:hidden}
 .fill-risk{height:100%;border-radius:3px;background:linear-gradient(90deg,var(--green),var(--yellow),var(--red));transition:width .5s}
 .fill-dd{height:100%;border-radius:3px;background:linear-gradient(90deg,var(--green),var(--yellow) 50%,var(--red));transition:width .5s}
+/* sidebar cards */
+.sidebar{background:var(--bg);gap:9px;padding:9px}
+.sidebar .card{background:var(--bg3);border-radius:12px;box-shadow:var(--card-shadow);padding:10px;margin:0}
+.sidebar .sec-title{background:transparent;border:none;padding:0 0 6px;color:var(--text3)}
+.reg-bar{background:transparent;border:none;padding:6px 0 0}
+.reg-seg{border-radius:6px}
+.agent-row{border-radius:9px}
 /* regime bar */
 .reg-bar{display:flex;gap:2px;padding:5px 10px;border-bottom:1px solid var(--border);background:var(--bg3);flex-shrink:0}
 .reg-seg{flex:1;height:18px;border-radius:2px;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;letter-spacing:.05em;font-family:var(--font-mono);cursor:default;transition:opacity .2s;opacity:.3}
@@ -352,66 +359,76 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
 
 <!-- LEFT SIDEBAR -->
 <div class="sidebar">
-  <!-- Equity chart -->
-  <div class="eq-wrap">
-    <div class="eq-top"><span class="eq-lbl">Equity</span><span class="eq-chg" id="eq-chg">—</span></div>
-    <div class="eq-val" id="eq-val">—</div>
-    <canvas id="eqCanvas" height="44"></canvas>
+  <!-- Card 1: Account -->
+  <div class="card">
+    <!-- Equity chart -->
+    <div class="eq-wrap">
+      <div class="eq-top"><span class="eq-lbl">Equity</span><span class="eq-chg" id="eq-chg">—</span></div>
+      <div class="eq-val" id="eq-val">—</div>
+      <canvas id="eqCanvas" height="44"></canvas>
+    </div>
   </div>
-  <!-- Risk -->
-  <div class="risk-wrap">
-    <div class="kv-row"><span class="kv-lbl">Risk Level</span><span class="kv-val y" id="risk-val">—</span></div>
-    <div class="track"><div class="fill-risk" id="risk-fill" style="width:60%"></div></div>
+  <!-- Card 2: Risk & Drawdown (regime lives here) -->
+  <div class="card">
+    <!-- Risk -->
+    <div class="risk-wrap">
+      <div class="kv-row"><span class="kv-lbl">Risk Level</span><span class="kv-val y" id="risk-val">—</span></div>
+      <div class="track"><div class="fill-risk" id="risk-fill" style="width:60%"></div></div>
+    </div>
+    <!-- Drawdown -->
+    <div class="dd-wrap">
+      <div class="kv-row"><span class="kv-lbl">Daily Drawdown</span><span class="kv-val" id="dd-val">—</span></div>
+      <div class="kv-row" style="margin-bottom:3px;"><span class="kv-lbl">Max Limit</span><span class="kv-val" id="dd-max">—</span></div>
+      <div class="track"><div class="fill-dd" id="dd-fill" style="width:3%"></div></div>
+    </div>
+    <!-- Regime bar -->
+    <div class="reg-bar">
+      <div class="reg-seg reg-bull" id="r-bull">BULL</div>
+      <div class="reg-seg reg-pull" id="r-pull">PULL</div>
+      <div class="reg-seg reg-range" id="r-range">RANGE</div>
+      <div class="reg-seg reg-bear" id="r-bear">BEAR</div>
+      <div class="reg-seg reg-side" id="r-side">SIDE</div>
+    </div>
   </div>
-  <!-- Drawdown -->
-  <div class="dd-wrap">
-    <div class="kv-row"><span class="kv-lbl">Daily Drawdown</span><span class="kv-val" id="dd-val">—</span></div>
-    <div class="kv-row" style="margin-bottom:3px;"><span class="kv-lbl">Max Limit</span><span class="kv-val" id="dd-max">—</span></div>
-    <div class="track"><div class="fill-dd" id="dd-fill" style="width:3%"></div></div>
+  <!-- Card 3: Economic Calendar -->
+  <div class="card">
+    <div class="sec-title">Economic Calendar <span class="cnt" id="cal-cnt">0</span></div>
+    <div id="cal-list" style="overflow-y:auto;max-height:160px;flex-shrink:0;"></div>
   </div>
-  <!-- Regime bar -->
-  <div class="reg-bar">
-    <div class="reg-seg reg-bull" id="r-bull">BULL</div>
-    <div class="reg-seg reg-pull" id="r-pull">PULL</div>
-    <div class="reg-seg reg-range" id="r-range">RANGE</div>
-    <div class="reg-seg reg-bear" id="r-bear">BEAR</div>
-    <div class="reg-seg reg-side" id="r-side">SIDE</div>
-  </div>
-  <!-- Economic Calendar -->
-  <div class="sec-title">Economic Calendar <span class="cnt" id="cal-cnt">0</span></div>
-  <div id="cal-list" style="overflow-y:auto;max-height:160px;flex-shrink:0;"></div>
-  <!-- Agents -->
-  <div class="sec-title" style="margin-top:auto;" id="agents-title">Agents</div>
-  <div style="overflow-y:auto;">
-    <div class="agent-row">
-      <div class="ag-ic" style="background:rgba(255,193,7,.1)">👑</div>
-      <div style="flex:1;min-width:0"><div class="ag-name">DIRECTOR — Macro</div><div class="ag-sub" id="ag0-sub">—</div></div>
-      <span class="badge" id="ag0-badge">—</span>
-    </div>
-    <div class="agent-row">
-      <div class="ag-ic" style="background:rgba(0,153,255,.1)">🧠</div>
-      <div style="flex:1;min-width:0"><div class="ag-name">ANALYST — Entry AI</div><div class="ag-sub" id="ag2-sub">—</div></div>
-      <span class="badge" id="ag2-badge">—</span>
-    </div>
-    <div class="agent-row">
-      <div class="ag-ic" style="background:rgba(0,212,170,.1)">🔭</div>
-      <div style="flex:1;min-width:0"><div class="ag-name">SCOUT — Momentum</div><div class="ag-sub" id="scout-sub">MACD · EMA20/50 · +0/+1/+2</div></div>
-      <span class="badge bon">ON</span>
-    </div>
-    <div class="agent-row">
-      <div class="ag-ic" style="background:rgba(0,212,170,.1)">🛡️</div>
-      <div style="flex:1;min-width:0"><div class="ag-name">GUARDIAN — Risk Gate</div><div class="ag-sub">9 Gates: A–D Core · E BTC·Hr · F XAU·Hr · G XAU·Dir · H Score · I H4</div></div>
-      <span class="badge bon">ON</span>
-    </div>
-    <div class="agent-row">
-      <div class="ag-ic" style="background:rgba(255,107,53,.1)">🔌</div>
-      <div style="flex:1;min-width:0"><div class="ag-name">SENTINEL — MT5 Watchdog</div><div class="ag-sub" id="mt5-sub">—</div></div>
-      <span class="badge" id="mt5-badge">—</span>
-    </div>
-    <div class="agent-row">
-      <div class="ag-ic" style="background:rgba(168,85,247,.1)">⏰</div>
-      <div style="flex:1;min-width:0"><div class="ag-name">Scan Loop</div><div class="ag-sub" id="loop-sub">—</div></div>
-      <span class="badge" id="loop-badge">—</span>
+  <!-- Card 4: Agents -->
+  <div class="card">
+    <div class="sec-title" style="margin-top:auto;" id="agents-title">Agents</div>
+    <div style="overflow-y:auto;">
+      <div class="agent-row">
+        <div class="ag-ic" style="background:rgba(255,193,7,.1)">👑</div>
+        <div style="flex:1;min-width:0"><div class="ag-name">DIRECTOR — Macro</div><div class="ag-sub" id="ag0-sub">—</div></div>
+        <span class="badge" id="ag0-badge">—</span>
+      </div>
+      <div class="agent-row">
+        <div class="ag-ic" style="background:rgba(0,153,255,.1)">🧠</div>
+        <div style="flex:1;min-width:0"><div class="ag-name">ANALYST — Entry AI</div><div class="ag-sub" id="ag2-sub">—</div></div>
+        <span class="badge" id="ag2-badge">—</span>
+      </div>
+      <div class="agent-row">
+        <div class="ag-ic" style="background:rgba(0,212,170,.1)">🔭</div>
+        <div style="flex:1;min-width:0"><div class="ag-name">SCOUT — Momentum</div><div class="ag-sub" id="scout-sub">MACD · EMA20/50 · +0/+1/+2</div></div>
+        <span class="badge bon">ON</span>
+      </div>
+      <div class="agent-row">
+        <div class="ag-ic" style="background:rgba(0,212,170,.1)">🛡️</div>
+        <div style="flex:1;min-width:0"><div class="ag-name">GUARDIAN — Risk Gate</div><div class="ag-sub">9 Gates: A–D Core · E BTC·Hr · F XAU·Hr · G XAU·Dir · H Score · I H4</div></div>
+        <span class="badge bon">ON</span>
+      </div>
+      <div class="agent-row">
+        <div class="ag-ic" style="background:rgba(255,107,53,.1)">🔌</div>
+        <div style="flex:1;min-width:0"><div class="ag-name">SENTINEL — MT5 Watchdog</div><div class="ag-sub" id="mt5-sub">—</div></div>
+        <span class="badge" id="mt5-badge">—</span>
+      </div>
+      <div class="agent-row">
+        <div class="ag-ic" style="background:rgba(168,85,247,.1)">⏰</div>
+        <div style="flex:1;min-width:0"><div class="ag-name">Scan Loop</div><div class="ag-sub" id="loop-sub">—</div></div>
+        <span class="badge" id="loop-badge">—</span>
+      </div>
     </div>
   </div>
 </div>
