@@ -318,7 +318,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
   /* Regime bar: smaller */
   .reg-seg{font-size:7px;height:15px}
 
-  .stats-row{grid-template-columns:repeat(2,1fr)}
+  .stats-row{grid-template-columns:repeat(2,1fr)!important}
   .floor-placeholder{min-height:120px}
 }
 </style>
@@ -447,7 +447,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
     <div class="sc"><span class="lbl">Float P&L</span><span class="val" id="s-float">—</span><span class="sub" id="s-open">— positions</span></div>
     <div class="sc"><span class="lbl">Win Rate</span><span class="val" id="s-winrate">—</span><span class="sub" id="s-winrate-sub">W: — / L: —</span></div>
     <div class="sc"><span class="lbl">Total Trades</span><span class="val b" id="s-total-trades">—</span><span class="sub" id="s-total-sub">— closed</span></div>
-    <div class="sc"><span class="lbl">Max DD</span><span class="val r2" id="s-maxdd">—</span><span class="sub">peak</span></div>
+    <div class="sc"><span class="lbl">Drawdown</span><span class="val r2" id="s-maxdd">—</span><span class="sub">now / max</span></div>
   </div>
   <!-- Heartbeat -->
   <div class="hb-bar">
