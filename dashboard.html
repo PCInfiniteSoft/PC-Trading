@@ -36,8 +36,6 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
 .mdemo{background:rgba(0,153,255,.12);color:var(--accent2);border:1px solid rgba(0,153,255,.25)}
 .mpaper{background:rgba(168,85,247,.12);color:var(--purple);border:1px solid rgba(168,85,247,.25)}
 .clock{font-family:var(--font-mono);font-size:10px;color:var(--text3)}
-.conn-dot{width:6px;height:6px;border-radius:50%;background:var(--red);margin-right:2px;flex-shrink:0}
-.conn-dot.online{background:var(--green)}
 /* LAYOUT */
 .layout{display:grid;grid-template-columns:220px 1fr 255px;height:calc(100vh - 76px)}
 /* SIDEBAR */
@@ -318,19 +316,8 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
 <!-- TOPBAR -->
 <div class="topbar">
   <div class="logo">⬡ PC TRADING</div>
-  <div class="tb-stat"><span class="lbl">Portfolio</span><span class="val" id="tb-balance">—</span></div>
-  <div class="tb-stat"><span class="lbl">Equity</span><span class="val" id="tb-equity">—</span></div>
-  <div class="tb-stat"><span class="lbl">Float P&L</span><span class="val" id="tb-float">—</span></div>
-  <div class="tb-stat"><span class="lbl">Today P&L</span><span class="val" id="tb-today">—</span></div>
-  <div class="tb-stat"><span class="lbl">Drawdown</span><span class="val" id="tb-dd">—</span></div>
-  <div class="tb-stat"><span class="lbl">Open</span><span class="val" id="tb-open">—</span></div>
-  <div class="tb-stat"><span class="lbl">Total Trades</span><span class="val b" id="tb-total">—</span></div>
-  <div class="tb-stat"><span class="lbl">Win Rate</span><span class="val" id="tb-wr">—</span></div>
   <div class="tb-stat"><span class="lbl">Scan #</span><span class="val a" id="tb-scan">—</span></div>
-  <div class="tb-stat"><span class="lbl">AI Status</span><span class="val" id="tb-ai">—</span></div>
-  <div class="regime-wrap" id="regime-pills-wrap" style="gap:5px;"></div>
   <div class="tb-right">
-    <div class="conn-dot" id="conn-dot"></div>
     <span class="mbadge mlive" id="mode-live">LIVE</span>
     <span class="mbadge mdemo" id="mode-demo">DEMO</span>
     <span class="mbadge mpaper" id="mode-paper">PAPER</span>
@@ -941,44 +928,16 @@ async function fetchAndRender(){
     const perf = await perfRes.json();
     lastData = d;
 
-    // ── Connection indicator ──
-    const dot = $('conn-dot');
-    dot.classList.toggle('online', !!d.state);
-
     // ── Topbar ──
     const balance = d.balance||0, equity = d.equity||0, floatPl = d.float_pl||0;
     const ddPct = d.drawdown_pct||0;
-    $('tb-balance').textContent = fmtUSD(balance);
-    $('tb-balance').className = 'val';
-    $('tb-equity').textContent = fmtUSD(equity);
-    $('tb-equity').className = 'val';
-    $('tb-float').textContent = fmtSign(floatPl);
-    $('tb-float').className = `val ${colorClass(floatPl)}`;
-    $('tb-dd').textContent = `-${fmt(ddPct,2)}%`;
-    $('tb-dd').className = `val ${ddPct>5?'r2':ddPct>2?'y':'g'}`;
-    $('tb-open').textContent = d.open_count||0;
     $('tb-scan').textContent = `#${d.scan_count||0}`;
     updateRegimeBar(d.state||'');
-    // Regime pills: per-symbol regime in topbar
-    const pillsWrap = $('regime-pills-wrap');
-    if(pillsWrap && d.symbols) {
-      pillsWrap.innerHTML = Object.entries(d.symbols).map(([sym,sv]) => {
-        const r = (sv.regime||'N/A').replace('TRENDING_UP','UP').replace('TRENDING_DOWN','DOWN').replace('RANGING','RANGE').replace('SIDEWAY','SIDE');
-        const col = r.includes('UP')||r.includes('BULL') ? 'var(--green)' : r.includes('DOWN')||r.includes('BEAR') ? 'var(--red)' : 'var(--yellow)';
-        const bg  = r.includes('UP')||r.includes('BULL') ? 'rgba(0,230,118,.12)' : r.includes('DOWN')||r.includes('BEAR') ? 'rgba(255,61,87,.12)' : 'rgba(255,193,7,.12)';
-        return `<span style="background:${bg};color:${col};border:1px solid ${col}40;padding:2px 8px;border-radius:3px;font-family:var(--font-mono);font-size:10px;font-weight:700;white-space:nowrap">${sym.replace('USDm','')}: ${r}</span>`;
-      }).join('');
-    }
-    // Today P&L from tb-today topbar element
     const todayStr = new Date().toISOString().slice(0,10);
     const todayTrades = (d.recent_trades||[]).filter(t => (t.exit_time||'').startsWith(todayStr));
     const todayPnl = todayTrades.reduce((s,t) => s+(t.net_profit||0), 0);
     const todayW = todayTrades.filter(t => (t.net_profit||0)>0).length;
     const todayL = todayTrades.filter(t => (t.net_profit||0)<=0).length;
-    if($('tb-today')) {
-      $('tb-today').textContent = todayTrades.length ? fmtSign(todayPnl) : '—';
-      $('tb-today').className = `val ${colorClass(todayPnl)}`;
-    }
 
     // ── Sidebar equity ──
     $('eq-val').textContent = fmtUSD(equity);
@@ -1021,11 +980,6 @@ async function fetchAndRender(){
     $('s-winrate').className = `val ${overallWR >= 50 ? 'g' : overallWR >= 40 ? 'y' : 'r2'}`;
     $('s-winrate-sub').textContent = `W: ${totalWins} / L: ${totalLosses}`;
 
-    // topbar totals (must come after calculation above)
-    $('tb-total').textContent = totalTrades || '—';
-    $('tb-wr').textContent = totalTrades > 0 ? `${fmt(overallWR,1)}%` : '—';
-    $('tb-wr').className = `val ${overallWR>=50?'g':overallWR>=40?'y':'r2'}`;
-
     // ── Heartbeat bar ──
     const dirRefresh = d.director_last_refresh_mins != null ? `${d.director_last_refresh_mins}m ago` : '—';
     const activeGates = d.active_gates != null ? `${d.active_gates}/9` : '9';
@@ -1064,8 +1018,6 @@ async function fetchAndRender(){
     // ── AI status ──
     const aiOnline = d.ai_online === true;
     const aiErrCode = d.ai_error_code || '';
-    $('tb-ai').textContent = aiOnline ? 'Online' : (aiErrCode ? `Err ${aiErrCode}` : 'Offline');
-    $('tb-ai').className = `val ${aiOnline ? 'g' : 'r2'}`;
 
     // ── Agents ──
     const mt5Disc = d.mt5_disconnects||0;
@@ -1090,7 +1042,7 @@ async function fetchAndRender(){
     $('losers-list').innerHTML = `<div class="empty">Requires exchange feed</div>`;
 
   } catch(err) {
-    $('conn-dot').classList.remove('online');
+    // connection state shown via control-bar pills (updateCtrlBar)
     $('hb-txt').innerHTML = `⚠️ <span style="color:var(--red)">Cannot reach API — is web_app.py running?</span>`;
     console.warn('Fetch error:', err);
   }
