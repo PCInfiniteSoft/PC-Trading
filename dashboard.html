@@ -95,9 +95,8 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
 .bwarn{background:rgba(255,193,7,.12);color:var(--yellow);border:1px solid rgba(255,193,7,.2)}
 /* MAIN */
 .main{display:flex;flex-direction:column;overflow:hidden;background:var(--bg)}
-.stats-row{display:grid;grid-template-columns:repeat(6,1fr);border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0}
-.sc{padding:7px 12px;border-right:1px solid var(--border);display:flex;flex-direction:column;gap:2px}
-.sc:last-child{border-right:none}
+.stats-row{display:grid;grid-template-columns:repeat(6,1fr);gap:9px;background:transparent;border:none;padding:9px 9px 0;flex-shrink:0}
+.sc{background:var(--bg3);border-radius:10px;box-shadow:var(--card-shadow);padding:9px 11px}
 .sc .lbl{font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em}
 .sc .val{font-family:var(--font-mono);font-size:15px;font-weight:700;line-height:1}
 .sc .sub{font-size:9px;color:var(--text3);font-family:var(--font-mono)}
@@ -111,7 +110,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
 /* 4-panel grid */
 .grid4{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:9px;flex:1;overflow:hidden;background:transparent;padding:9px}
 .panel{background:var(--bg3);display:flex;flex-direction:column;overflow:hidden;border-radius:12px;box-shadow:var(--card-shadow)}
-.ph{display:flex;align-items:center;justify-content:space-between;padding:6px 10px;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--bg3)}
+.ph{display:flex;align-items:center;justify-content:space-between;padding:8px 11px;border-bottom:1px solid var(--border);flex-shrink:0;background:transparent}
 .ph-title{font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.08em;display:flex;align-items:center;gap:5px}
 .pdot{width:6px;height:6px;border-radius:50%}
 .pdot.g{background:var(--green)}.pdot.b{background:var(--accent2)}.pdot.y{background:var(--yellow)}.pdot.p{background:var(--purple)}
@@ -442,7 +441,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
     <div class="sc"><span class="lbl">Float P&L</span><span class="val" id="s-float">—</span><span class="sub" id="s-open">— positions</span></div>
     <div class="sc"><span class="lbl">Win Rate</span><span class="val" id="s-winrate">—</span><span class="sub" id="s-winrate-sub">W: — / L: —</span></div>
     <div class="sc"><span class="lbl">Total Trades</span><span class="val b" id="s-total-trades">—</span><span class="sub" id="s-total-sub">— closed</span></div>
-    <div class="sc"><span class="lbl">Risk / MaxDD</span><span class="val y" id="s-risk">—</span><span class="sub">MaxDD: <span id="s-maxdd">—</span></span></div>
+    <div class="sc"><span class="lbl">Max DD</span><span class="val r2" id="s-maxdd">—</span><span class="sub">peak</span></div>
   </div>
   <!-- Heartbeat -->
   <div class="hb-bar">
@@ -613,6 +612,11 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
     </div>
 
   </div>
+  <!-- Trading Floor placeholder (sub-project #2 will render here) -->
+  <div class="panel floor-placeholder" style="flex:1;min-height:150px;margin:9px">
+    <div class="ph"><div class="ph-title"><div class="pdot g"></div>Trading Floor</div><span style="font-size:9px;color:var(--text3)">live agents</span></div>
+    <div class="pb" style="padding:6px 8px"><canvas id="pixelAgents" style="width:100%;display:block;image-rendering:pixelated"></canvas></div>
+  </div>
 </div>
 
 <!-- RIGHT SIDEBAR -->
@@ -622,14 +626,6 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
   <!-- Macro -->
   <div class="sec-title">Macro Data</div>
   <div id="macro-list"></div>
-  <!-- Trading Floor -->
-  <div class="sec-title" style="display:flex;align-items:center;gap:6px">
-    <span style="width:6px;height:6px;border-radius:50%;background:#00e676;display:inline-block;animation:pulse 1.5s infinite"></span>
-    Trading Floor
-  </div>
-  <div style="padding:4px 6px;background:#0a0e0b;border-bottom:1px solid var(--border)">
-    <canvas id="pixelAgents" style="width:100%;display:block;image-rendering:pixelated"></canvas>
-  </div>
   <!-- Top Gainers -->
   <div class="sec-title">Top Gainers <span class="cnt">24h</span></div>
   <div id="gainers-list" style="overflow-y:auto;max-height:150px;"></div>
@@ -982,7 +978,6 @@ async function fetchAndRender(){
     $('s-float').textContent = fmtSign(floatPl);
     $('s-float').className = `val ${colorClass(floatPl)}`;
     $('s-open').textContent = `${d.open_count||0} positions`;
-    $('s-risk').textContent = `${risk}/5`;
     $('s-maxdd').textContent = `-${fmt(ddPct,2)}% / ${maxDD}%`;
 
     // ── Total trades + win rate from performance data ──
