@@ -42,6 +42,9 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
 .sidebar,.rsidebar{background:var(--bg2);display:flex;flex-direction:column;overflow:hidden}
 .sidebar{border-right:1px solid var(--border)}
 .rsidebar{border-left:1px solid var(--border)}
+.rsidebar{background:var(--bg);gap:9px;padding:9px}
+.rsidebar .sec-title{background:transparent;border:none;padding:0 0 6px;color:var(--text3)}
+#macro-list{background:var(--bg3);border-radius:12px;box-shadow:var(--card-shadow);padding:10px}
 .sec-title{padding:7px 10px 5px;font-size:9px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.1em;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);background:var(--bg3);flex-shrink:0}
 .sec-title .cnt{background:var(--bg4);padding:1px 5px;border-radius:2px;color:var(--text2);font-size:9px}
 /* equity chart */
@@ -621,8 +624,6 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
 
 <!-- RIGHT SIDEBAR -->
 <div class="rsidebar">
-  <div class="sec-title">Symbols</div>
-  <div class="sym-cards" id="sym-cards"></div>
   <!-- Macro -->
   <div class="sec-title">Macro Data</div>
   <div id="macro-list"></div>
@@ -855,25 +856,7 @@ function renderLogs(logs){
 
 function renderSymbols(symbols){
   if(!symbols) return;
-  // Right sidebar symbol cards (big)
-  $('sym-cards').innerHTML = Object.entries(symbols).map(([sym,d])=>{
-    const dir = d.allowed_dir||'BOTH';
-    const dirColor = dir==='BUY_ONLY'?'var(--green)':dir==='SELL_ONLY'?'var(--red)':'var(--yellow)';
-    const rsiColor = d.rsi<30?'var(--green)':d.rsi>70?'var(--red)':'var(--yellow)';
-    const mkt = d.market_status||'—';
-    const mktColor = mkt==='OPEN'?'var(--green)':mkt==='CLOSED'?'var(--red)':'#666';
-    const mktBg   = mkt==='OPEN'?'rgba(0,230,118,.12)':mkt==='CLOSED'?'rgba(255,61,87,.12)':'rgba(255,255,255,.06)';
-    return `<div class="sym-c">
-      <div class="sym-top"><span class="sym-name">${sym}</span>
-        <span class="stag" style="background:${mktBg};color:${mktColor};border:1px solid ${mktColor}40;font-size:8px">● ${mkt}</span>
-        <span class="stag" style="background:${dir==='BUY_ONLY'?'rgba(0,230,118,.12)':dir==='SELL_ONLY'?'rgba(255,61,87,.12)':'rgba(255,193,7,.12)'};color:${dirColor};border:1px solid ${dirColor}40;font-size:8px">${dir}</span></div>
-      <div class="sym-kv" style="margin-bottom:2px"><span class="sym-k">Price</span><span class="sym-v">${fmt(d.price,2)}</span></div>
-      <div class="sym-kv" style="margin-bottom:2px"><span class="sym-k">RSI</span><span class="sym-v" style="color:${rsiColor}">${fmt(d.rsi,1)}</span></div>
-      <div class="sym-kv"><span class="sym-k">Spread</span><span class="sym-v">${fmt(d.spread,0)}pts</span></div>
-    </div>`;
-  }).join('');
-
-  // Panel 4: Macro/Trend view (distinct from right sidebar market view)
+  // Panel 4: Macro/Trend view (center Symbol Monitor)
   $('sym-cards-inner').innerHTML = Object.entries(symbols).map(([sym,sv])=>{
     const dir = sv.allowed_dir||'BOTH';
     const dirCol = dir==='BUY_ONLY'?'var(--green)':dir==='SELL_ONLY'?'var(--red)':'var(--yellow)';
