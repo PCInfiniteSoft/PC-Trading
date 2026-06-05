@@ -806,7 +806,7 @@ def place_order(symbol, type, price, rsi, comment, extra=None):
         logging.getLogger(symbol).error(f"❌ MT5 ปฏิเสธคำสั่ง! สาเหตุ: {res.comment} (Code: {res.retcode})")
         return False
 
-    slippage = abs(res.price - price) / mt5.symbol_info(symbol).point
+    slippage = abs(res.price - price) / symbol_info.point
     logging.getLogger(symbol).info(f"✅ {type} {symbol} {lot} lots at {res.price} (RSI: {rsi:.2f}) | {comment} | Slip: {slippage:.1f}pts")
 
     strat = ai.STRATEGY_DATA.get(symbol, {})
@@ -831,16 +831,18 @@ def place_order(symbol, type, price, rsi, comment, extra=None):
     )
 
     sym_cfg = SYMBOLS_CONFIG.get(symbol, {})
-    point = mt5.symbol_info(symbol).point
+    point = symbol_info.point
     atr_pct = ai.STRATEGY_DATA.get(symbol, {}).get("atr_pct")
+    # bd['spread'] reflects the pre-send tick snapshot (the spread the order was entered into),
+    # not the post-fill spread — this is intentional for judging entry conditions.
     dyn_slip, bd = compute_dyn_slip(price, point, atr_pct, fresh.ask, fresh.bid, sym_cfg)
     logging.getLogger(symbol).info(
-        f"[GUARDIAN-M] slip={slippage:.0f} dyn_slip={bd['dyn']:.0f} "
+        f"[GUARDIAN-M] slip={slippage:.1f} dyn_slip={bd['dyn']:.0f} "
         f"[base={bd['base']} atr={bd['atr']} spread={bd['spread']} "
         f"raw={bd['raw']} cap={bd['cap']}]")
     if slippage > dyn_slip:
         logging.getLogger(symbol).warning(
-            f"🛑 [GUARDIAN-M] Slip {slippage:.0f}pts > {dyn_slip:.0f} — ปิดออเดอร์ทันที")
+            f"🛑 [GUARDIAN-M] Slip {slippage:.1f}pts > {dyn_slip:.0f} — ปิดออเดอร์ทันที")
         close_one_order(symbol=symbol, reason=f"GUARDIAN-M: slip {slippage:.0f}pts", ticket=res.order)
         return False
 
