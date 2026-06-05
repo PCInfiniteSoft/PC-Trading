@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from bot_config import *
 from trade_noti import send_trade_notification
 from discord.ext import tasks
-from risk_manager import RiskManager
+from risk_manager import RiskManager, compute_dyn_slip
 import strategy_profile as sp
 
 DEPLOY_FLAG = "deploy.flag"
@@ -823,18 +823,21 @@ def place_order(symbol, type, price, rsi, comment, extra=None):
     raw_comment = str(comment).replace('\n', ' ').replace('\r', '').strip()
     safe_comment = raw_comment[:25]
 
-    # Re-price off a fresh tick. place_order may run seconds after the caller snapped
-    # `price` (e.g. across `await ai.ai_analysis`), so that snapshot can be stale. Pricing
-    # the order — and the GUARDIAN-M slippage reference — off the live market at send time
-    # stops decision-to-execution drift from masquerading as slippage (churn 2026-06-06).
-    _fresh = mt5.symbol_info_tick(symbol)
-    if _fresh is not None:
-        price = _fresh.bid if type == "SELL" else _fresh.ask
-
     risk_level = getattr(shared_state, 'CURRENT_RISK_LEVEL', 3)
-    base_pct = 0.001 
-    sl_pct = base_pct * (1.0 + (3 - risk_level) * 0.2) 
+    base_pct = 0.001
+    sl_pct = base_pct * (1.0 + (3 - risk_level) * 0.2)
     tp_pct = sl_pct * 1.0
+
+    # Re-price off a fresh tick right before send. place_order may run seconds after the
+    # caller snapped `price` (e.g. across `await ai.ai_analysis`), so that snapshot can be
+    # stale. Pricing the order — and the GUARDIAN-M slippage/dyn-slip reference — off the
+    # live market at send time stops decision-to-execution drift from masquerading as
+    # slippage (churn 2026-06-06). Hard-abort if no tick rather than trade on a stale price.
+    fresh = mt5.symbol_info_tick(symbol)
+    if fresh is None:
+        logging.getLogger(symbol).error("❌ [GUARDIAN-M] no fresh tick — abort order")
+        return False
+    price = fresh.ask if type == "BUY" else fresh.bid
 
     sl_dist = price * sl_pct
     tp_dist = price * tp_pct
@@ -877,10 +880,10 @@ def place_order(symbol, type, price, rsi, comment, extra=None):
         logging.getLogger(symbol).error(f"❌ MT5 ปฏิเสธคำสั่ง! สาเหตุ: {res.comment} (Code: {res.retcode})")
         return False
 
-    # GUARDIAN-M slippage measured against the FRESH price the order was sent at
-    # (re-priced above), not the caller's possibly-stale snapshot.
-    max_slip = SYMBOLS_CONFIG.get(symbol, {}).get('max_slip', 300)
-    should_close, slippage = guardian_m_should_close(res.price, price, symbol_info.point, max_slip)
+    # GUARDIAN-M slippage (pts) measured against the FRESH price the order was sent at
+    # (re-priced above), not the caller's possibly-stale snapshot. The fire/no-fire
+    # decision uses the dynamic threshold below, not a static cap.
+    slippage = abs(res.price - price) / symbol_info.point if symbol_info.point > 0 else 0.0
     logging.getLogger(symbol).info(f"✅ {type} {symbol} {lot} lots at {res.price} (RSI: {rsi:.2f}) | {comment} | Slip: {slippage:.1f}pts")
 
     strat = ai.STRATEGY_DATA.get(symbol, {})
@@ -904,8 +907,18 @@ def place_order(symbol, type, price, rsi, comment, extra=None):
         d1_trend=macro_data.get("d1_trend"),
     )
 
-    if should_close:
-        logging.getLogger(symbol).warning(f"🛑 [GUARDIAN-M] Slip {slippage:.0f}pts > {max_slip} — ปิดออเดอร์ทันที")
+    # GUARDIAN-M dynamic gate: threshold = base + a*ATR + b*spread, capped (per-symbol cfg),
+    # measured against the same fresh tick the order was priced/sent at.
+    sym_cfg = SYMBOLS_CONFIG.get(symbol, {})
+    atr_pct = ai.STRATEGY_DATA.get(symbol, {}).get("atr_pct")
+    dyn_slip, bd = compute_dyn_slip(price, symbol_info.point, atr_pct, fresh.ask, fresh.bid, sym_cfg)
+    logging.getLogger(symbol).info(
+        f"[GUARDIAN-M] slip={slippage:.0f} dyn_slip={bd['dyn']:.0f} "
+        f"[base={bd['base']} atr={bd['atr']} spread={bd['spread']} "
+        f"raw={bd['raw']} cap={bd['cap']}]")
+    if slippage > dyn_slip:
+        logging.getLogger(symbol).warning(
+            f"🛑 [GUARDIAN-M] Slip {slippage:.0f}pts > {dyn_slip:.0f} — ปิดออเดอร์ทันที")
         close_one_order(symbol=symbol, reason=f"GUARDIAN-M: slip {slippage:.0f}pts", ticket=res.order)
         # Stamp the slip-close for GUARDIAN-S cooldown so the next pyramid layer in this
         # scan (#2) and re-entry on the next ticks (#3) are blocked — stops the churn.
