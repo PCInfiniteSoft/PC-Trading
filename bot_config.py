@@ -74,8 +74,13 @@ SYMBOLS_CONFIG = {
         # Max spread ที่ยอมรับได้ (BTC spread กว้างกว่า XAU)
         "max_spread_override": 8000,
 
-        # Max slippage (pts) — GUARDIAN-M ปิดออเดอร์ทันทีถ้า fill ห่างจาก price เกินนี้
-        "max_slip": 600,
+        # GUARDIAN-M dynamic slippage ceiling: dyn = base + a*ATR_pts + b*spread_pts, capped.
+        # base = previous static max_slip (non-regression). ATR coeff is small because
+        # ATR-in-points is large at point=0.01 (~3e4). spread ~1x current spread (~1008pts).
+        "slip_base": 600,
+        "slip_a_atr": 0.02,
+        "slip_b_spread": 1.0,
+        "slip_cap": 1800,
 
         # Pullback detection — BTC pullback ลึกกว่า XAU
         "pullback_rsi_threshold": 42.0,  # RSI ต่ำกว่านี้ใน TRENDING_UP = Pullback entry
@@ -123,8 +128,11 @@ SYMBOLS_CONFIG = {
         # XAU spread แคบกว่า
         "max_spread_override": 5000,
 
-        # Max slippage (pts) — GUARDIAN-M ปิดออเดอร์ทันทีถ้า fill ห่างจาก price เกินนี้
-        "max_slip": 300,
+        # GUARDIAN-M dynamic slippage ceiling (see BTC block). point=0.001, spread ~280pts.
+        "slip_base": 300,
+        "slip_a_atr": 0.02,
+        "slip_b_spread": 1.0,
+        "slip_cap": 900,
 
         # XAU pullback ไม่ลึกเท่า BTC
         "pullback_rsi_threshold": 45.0,
