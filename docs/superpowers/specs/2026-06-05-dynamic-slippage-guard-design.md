@@ -71,13 +71,25 @@ dyn_slip   = min(dyn_slip, slip_cap)                # hard ceiling
 
 ### 3. Config — `bot_config.py` SYMBOLS_CONFIG
 
-Replace `max_slip` with four keys per symbol. Starting values (conservative — close to
-current behavior, tuned later from live logs):
+Replace `max_slip` with four keys per symbol.
+
+**Scale note (verified on server 2026-06-05):** `BTCUSDm` point=0.01, `XAUUSDm`
+point=0.001. ATR converted to points is large (BTC ~3e4, XAU ~3e3 pts), so the ATR
+coefficient must be a small fraction (~0.02), not O(1). The spread term is a small
+multiple of current spread (BTC live spread ~1008 pts, XAU ~280 pts).
+
+**Non-regression invariant:** with default config `dyn_slip` must never be *tighter*
+than today's static `max_slip` (BTC 600 / XAU 300). Therefore `slip_base` = the current
+static value, all terms are non-negative, and `slip_cap > slip_base`. Deployment-1 can
+only *loosen* in volatile/wide-spread moments; it cannot regress vs current behavior.
+Tighten `slip_base` later from live logs.
+
+Starting values (provisional — calibrated from logs after rollout, NOT escalated to user):
 
 | Symbol | slip_base | slip_a_atr | slip_b_spread | slip_cap |
 |--------|-----------|------------|---------------|----------|
-| BTCUSDm | 150 | 0.5 | 1.5 | 800 |
-| XAUUSDm | 80 | 0.5 | 1.5 | 400 |
+| BTCUSDm | 600 | 0.02 | 1.0 | 1800 |
+| XAUUSDm | 300 | 0.02 | 1.0 | 900 |
 
 ### 4. Logging / observability
 
