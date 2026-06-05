@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from bot_config import *
 from trade_noti import send_trade_notification
 from discord.ext import tasks
-from risk_manager import RiskManager
+from risk_manager import RiskManager, compute_dyn_slip
 
 DEPLOY_FLAG = "deploy.flag"
 
@@ -753,9 +753,17 @@ def place_order(symbol, type, price, rsi, comment, extra=None):
     safe_comment = raw_comment[:25]
 
     risk_level = getattr(shared_state, 'CURRENT_RISK_LEVEL', 3)
-    base_pct = 0.001 
-    sl_pct = base_pct * (1.0 + (3 - risk_level) * 0.2) 
+    base_pct = 0.001
+    sl_pct = base_pct * (1.0 + (3 - risk_level) * 0.2)
     tp_pct = sl_pct * 1.0
+
+    # [GUARDIAN-M] re-fetch tick right before send so deviation + slippage are measured
+    # against the live market, not the stale tick captured before the ANALYST AI call.
+    fresh = mt5.symbol_info_tick(symbol)
+    if fresh is None:
+        logging.getLogger(symbol).error("❌ [GUARDIAN-M] no fresh tick — abort order")
+        return False
+    price = fresh.ask if type == "BUY" else fresh.bid
 
     sl_dist = price * sl_pct
     tp_dist = price * tp_pct
@@ -823,9 +831,16 @@ def place_order(symbol, type, price, rsi, comment, extra=None):
     )
 
     sym_cfg = SYMBOLS_CONFIG.get(symbol, {})
-    max_slip = sym_cfg.get('max_slip', 300)
-    if slippage > max_slip:
-        logging.getLogger(symbol).warning(f"🛑 [GUARDIAN-M] Slip {slippage:.0f}pts > {max_slip} — ปิดออเดอร์ทันที")
+    point = mt5.symbol_info(symbol).point
+    atr_pct = ai.STRATEGY_DATA.get(symbol, {}).get("atr_pct")
+    dyn_slip, bd = compute_dyn_slip(price, point, atr_pct, fresh.ask, fresh.bid, sym_cfg)
+    logging.getLogger(symbol).info(
+        f"[GUARDIAN-M] slip={slippage:.0f} dyn_slip={bd['dyn']:.0f} "
+        f"[base={bd['base']} atr={bd['atr']} spread={bd['spread']} "
+        f"raw={bd['raw']} cap={bd['cap']}]")
+    if slippage > dyn_slip:
+        logging.getLogger(symbol).warning(
+            f"🛑 [GUARDIAN-M] Slip {slippage:.0f}pts > {dyn_slip:.0f} — ปิดออเดอร์ทันที")
         close_one_order(symbol=symbol, reason=f"GUARDIAN-M: slip {slippage:.0f}pts", ticket=res.order)
         return False
 
