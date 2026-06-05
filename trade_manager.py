@@ -911,14 +911,16 @@ def place_order(symbol, type, price, rsi, comment, extra=None):
     # measured against the same fresh tick the order was priced/sent at.
     sym_cfg = SYMBOLS_CONFIG.get(symbol, {})
     atr_pct = ai.STRATEGY_DATA.get(symbol, {}).get("atr_pct")
+    # bd['spread'] reflects the pre-send tick snapshot (the spread the order was entered into),
+    # not the post-fill spread — this is intentional for judging entry conditions.
     dyn_slip, bd = compute_dyn_slip(price, symbol_info.point, atr_pct, fresh.ask, fresh.bid, sym_cfg)
     logging.getLogger(symbol).info(
-        f"[GUARDIAN-M] slip={slippage:.0f} dyn_slip={bd['dyn']:.0f} "
+        f"[GUARDIAN-M] slip={slippage:.1f} dyn_slip={bd['dyn']:.0f} "
         f"[base={bd['base']} atr={bd['atr']} spread={bd['spread']} "
         f"raw={bd['raw']} cap={bd['cap']}]")
     if slippage > dyn_slip:
         logging.getLogger(symbol).warning(
-            f"🛑 [GUARDIAN-M] Slip {slippage:.0f}pts > {dyn_slip:.0f} — ปิดออเดอร์ทันที")
+            f"🛑 [GUARDIAN-M] Slip {slippage:.1f}pts > {dyn_slip:.0f} — ปิดออเดอร์ทันที")
         close_one_order(symbol=symbol, reason=f"GUARDIAN-M: slip {slippage:.0f}pts", ticket=res.order)
         # Stamp the slip-close for GUARDIAN-S cooldown so the next pyramid layer in this
         # scan (#2) and re-entry on the next ticks (#3) are blocked — stops the churn.
