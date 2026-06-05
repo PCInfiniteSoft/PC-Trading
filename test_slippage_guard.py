@@ -42,10 +42,20 @@ def test_clamped_at_cap():
 
 
 def test_never_tighter_than_base_non_regression():
-    # Any non-negative terms -> dyn >= base (the non-regression invariant).
-    dyn, _ = compute_dyn_slip(price=3300.0, point=0.001, atr_pct=0.0,
-                              ask=3300.0, bid=3300.0, cfg=XAU)
+    # Even with a positive ATR/spread contribution, dyn must stay >= base
+    # (terms are additive and non-negative). XAU base 300.
+    dyn, bd = compute_dyn_slip(price=3300.0, point=0.001, atr_pct=0.1,
+                               ask=3300.5, bid=3300.0, cfg=XAU)
+    assert bd["atr"] > 0 and bd["spread"] > 0
     assert dyn >= 300
+
+
+def test_cap_never_tighter_than_base():
+    # Misconfigured cap < base must still floor at base (invariant enforced).
+    bad = {"slip_base": 600, "slip_a_atr": 0.0, "slip_b_spread": 0.0, "slip_cap": 100}
+    dyn, bd = compute_dyn_slip(price=100000.0, point=0.01, atr_pct=None,
+                               ask=100000.0, bid=100000.0, cfg=bad)
+    assert bd["cap"] == 600 and dyn == 600
 
 
 def test_xau_config_selected():
@@ -61,3 +71,18 @@ def test_negative_or_zero_spread_ignored():
                                ask=99990.0, bid=100000.0, cfg=BTC)
     assert bd["spread"] == 0.0
     assert dyn == 600
+
+
+if __name__ == "__main__":
+    import sys
+    fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
+    failed = 0
+    for fn in fns:
+        try:
+            fn()
+            print(f"PASS  {fn.__name__}")
+        except AssertionError as e:
+            failed += 1
+            print(f"FAIL  {fn.__name__}: {e}")
+    print(f"\n{len(fns)-failed}/{len(fns)} passed")
+    sys.exit(1 if failed else 0)
