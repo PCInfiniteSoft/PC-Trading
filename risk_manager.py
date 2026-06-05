@@ -40,37 +40,39 @@ def _max_layers_for(symbol):
 def compute_dyn_slip(price, point, atr_pct, ask, bid, cfg):
     """GUARDIAN-M dynamic slippage ceiling, in points.
 
-    dyn = base + a*atr_pts + b*spread_pts, clamped to [.., slip_cap].
+    dyn = base + a*atr_pts + b*spread_pts, clamped to [slip_base, slip_cap].
     Falls back to slip_base alone when atr_pct/spread are unavailable, so the
     result is never tighter than slip_base (non-regression invariant).
 
     Returns (dyn_slip_pts: float, breakdown: dict) — breakdown is for logging.
+    The returned dyn equals breakdown["dyn"] (both rounded) so the live
+    comparison and the log line never disagree.
     """
     base = cfg.get("slip_base", 300)
     a = cfg.get("slip_a_atr", 0.0)
     b = cfg.get("slip_b_spread", 0.0)
-    cap = cfg.get("slip_cap", base)
+    cap = max(cfg.get("slip_cap", base), base)  # cap must never be tighter than base
 
     atr_term = 0.0
-    if atr_pct and atr_pct > 0 and price > 0 and point > 0:
+    if atr_pct is not None and atr_pct > 0 and price > 0 and point > 0:
         atr_pts = (atr_pct / 100.0) * price / point
         atr_term = a * atr_pts
 
     spread_term = 0.0
-    if ask and bid and point > 0:
+    if ask is not None and bid is not None and point > 0:
         spread_pts = (ask - bid) / point
         if spread_pts > 0:
             spread_term = b * spread_pts
 
     raw = base + atr_term + spread_term
-    dyn = min(raw, cap)
+    dyn = round(min(raw, cap), 1)
     breakdown = {
         "base": base,
         "atr": round(atr_term, 1),
         "spread": round(spread_term, 1),
         "raw": round(raw, 1),
         "cap": cap,
-        "dyn": round(dyn, 1),
+        "dyn": dyn,
     }
     return dyn, breakdown
 
