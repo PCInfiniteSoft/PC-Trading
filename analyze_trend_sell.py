@@ -5,6 +5,16 @@ Usage:
 
 Each CSV is a backtest trade log (from backtest.py --export). Prints one row per
 (scenario, symbol) with the composite metrics from the design spec.
+
+INTERPRETATION NOTES:
+- The st1/st2/st3 rows include BOTH the trend-sell entries AND the baseline
+  mean-reversion entries that occur on non-DOWNTREND bars (the trend-sell path only
+  fires on a confirmed D1 DOWNTREND; other bars fall through to mean-reversion). To
+  isolate the trigger's own trades, filter the source CSV by entry_reason=="trend_sell".
+- st2 (EMA bearish-alignment) is a STATE trigger, not a one-shot event, so it tends to
+  fire on many more bars during a sustained downtrend than st1/st3 — compare the
+  #trades column before reading WR/MaxDD across scenarios as apples-to-apples.
+- Backtest uses a MOCK analyst (not live GPT); treat numbers as relative, not absolute.
 """
 import csv
 import statistics

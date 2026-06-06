@@ -518,7 +518,8 @@ def test_export_csv_writes_correct_columns(tmp_path):
     assert rows[0]["net_profit"] == "5.0"
     expected_cols = {"symbol", "direction", "entry_time", "entry_price",
                      "exit_price", "net_profit", "result", "rsi_entry",
-                     "score", "h4_trend", "allowed_direction", "layers", "exit_time"}
+                     "score", "h4_trend", "allowed_direction", "layers", "exit_time",
+                     "d1_trend", "entry_reason"}
     assert expected_cols.issubset(set(rows[0].keys()))
 
 
