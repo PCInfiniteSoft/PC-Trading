@@ -557,13 +557,19 @@ def run_backtest(args) -> list:
             # 4-TS. Trend-following SELL path (st1/st2/st3): a second SELL entry that
             # fires on a momentum/breakdown trigger, gated on a confirmed D1 DOWNTREND.
             # Runs in parallel with the mean-reversion path below; one entry per bar.
+            # NOTE: symbol/time-quality filters (XAU dead-hours, BTC off-hours gate) are
+            # intentionally NOT applied here — trend-sell is a minimal path by design.
             if filter_cfg["trend_sell"] and director_state.get("d1_trend") == "DOWNTREND":
+                # predicate defaults: donchian n=20, ema fast=9/slow=21, rsi level=50
                 ts_fired = (
                     (filter_cfg["ts_donchian"] and donchian_breakdown(m5_slice)) or
                     (filter_cfg["ts_ema"]      and ema_cross_down(m5_slice)) or
                     (filter_cfg["ts_rsi"]      and rsi_cross_down(m5_slice))
                 )
                 if ts_fired:
+                    # The fired bar is claimed by the trend-sell path: we always continue
+                    # afterwards so a blocked/invalid trend signal never falls through to
+                    # the mean-reversion path and opens a contradictory BUY on this bar.
                     ts_allowed, _ = check_guardian(
                         symbol=symbol, direction="SELL",
                         allowed_direction=director_state["allowed_direction"],
@@ -602,7 +608,7 @@ def run_backtest(args) -> list:
                                 "entry_reason":      "trend_sell",
                                 **ts_exit,
                             })
-                            continue  # one entry per bar — skip the mean-reversion path
+                    continue  # fired bar claimed by trend-sell path — no fall-through
 
             # S1/S3/S5: ATR minimum — skip ranging/dead markets
             if filter_cfg["atr_filter"]:
