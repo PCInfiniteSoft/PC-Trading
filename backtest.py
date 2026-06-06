@@ -68,6 +68,35 @@ def _get_trend(df: pd.DataFrame) -> str:
     return "SIDEWAY"
 
 
+def donchian_breakdown(m5_slice, n: int = 20) -> bool:
+    """True when the latest close breaks below the lowest low of the prior n bars."""
+    if len(m5_slice) < n + 1:
+        return False
+    prior = m5_slice.iloc[-(n + 1):-1]
+    return float(m5_slice.iloc[-1]["close"]) < float(prior["low"].min())
+
+
+def ema_cross_down(m5_slice, fast: int = 9, slow: int = 21) -> bool:
+    """True when the fast EMA is below the slow EMA and price is below the slow EMA."""
+    if len(m5_slice) < slow + 1:
+        return False
+    closes = m5_slice["close"]
+    ema_fast = closes.ewm(span=fast, adjust=False).mean().iloc[-1]
+    ema_slow = closes.ewm(span=slow, adjust=False).mean().iloc[-1]
+    return bool(ema_fast < ema_slow and float(closes.iloc[-1]) < ema_slow)
+
+
+def rsi_cross_down(m5_slice, level: float = 50.0) -> bool:
+    """True when RSI crosses down through `level` on the latest bar
+    (previous RSI >= level, current RSI < level)."""
+    closes = m5_slice["close"].tolist()
+    if len(closes) < 16:
+        return False
+    rsi_prev = calculate_rsi(closes[:-1])
+    rsi_now = calculate_rsi(closes)
+    return bool(rsi_prev >= level and rsi_now < level)
+
+
 def compute_director(h4_slice: pd.DataFrame, d1_slice: pd.DataFrame) -> dict:
     """
     Mock DIRECTOR: compute allowed_direction from H4 and D1 Chandelier trends.

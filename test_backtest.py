@@ -520,3 +520,69 @@ def test_export_csv_writes_correct_columns(tmp_path):
                      "exit_price", "net_profit", "result", "rsi_entry",
                      "score", "h4_trend", "allowed_direction", "layers", "exit_time"}
     assert expected_cols.issubset(set(rows[0].keys()))
+
+
+def _down_then_flat(n_down=30, n_flat=10, base=100.0):
+    """A falling series that flattens — RSI rises back through 50 then we can
+    construct a cross. Returns an OHLCV DataFrame."""
+    rows = []
+    closes = [base - i * 0.5 for i in range(n_down)] + [base - n_down * 0.5] * n_flat
+    for i, close in enumerate(closes):
+        rows.append({
+            "time": pd.Timestamp("2026-01-01") + pd.Timedelta(minutes=5 * i),
+            "open": close, "high": close + 0.3, "low": close - 0.3,
+            "close": close, "tick_volume": 100,
+        })
+    return pd.DataFrame(rows)
+
+
+def test_donchian_breakdown_fires_on_new_low():
+    import backtest
+    df = make_ohlcv(40, trend="down")
+    assert backtest.donchian_breakdown(df, n=20) is True
+
+
+def test_donchian_breakdown_false_when_rising():
+    import backtest
+    df = make_ohlcv(40, trend="up")
+    assert backtest.donchian_breakdown(df, n=20) is False
+
+
+def test_donchian_breakdown_false_when_insufficient_bars():
+    import backtest
+    df = make_ohlcv(10, trend="down")
+    assert backtest.donchian_breakdown(df, n=20) is False
+
+
+def test_ema_cross_down_true_in_downtrend():
+    import backtest
+    df = make_ohlcv(40, trend="down")
+    assert backtest.ema_cross_down(df, fast=9, slow=21) is True
+
+
+def test_ema_cross_down_false_in_uptrend():
+    import backtest
+    df = make_ohlcv(40, trend="up")
+    assert backtest.ema_cross_down(df, fast=9, slow=21) is False
+
+
+def test_rsi_cross_down_fires_when_crossing_below_level():
+    import backtest
+    # Zigzag series (slight upward bias) keeps RSI near 50-55, then a small drop
+    # crosses it below 50. Verified: prev_rsi=53.81, now_rsi=48.89.
+    v, closes = 100.0, []
+    for i in range(28):
+        v += 0.5 if i % 2 == 0 else -0.3
+        closes.append(v)
+    closes.append(closes[-1] - 0.5)  # small drop to cross RSI below 50
+    rows = [{"time": pd.Timestamp("2026-01-01") + pd.Timedelta(minutes=5 * i),
+             "open": c, "high": c + 0.3, "low": c - 0.3, "close": c, "tick_volume": 100}
+            for i, c in enumerate(closes)]
+    df = pd.DataFrame(rows)
+    assert backtest.rsi_cross_down(df, level=50.0) is True
+
+
+def test_rsi_cross_down_false_when_already_below():
+    import backtest
+    df = make_ohlcv(40, trend="down")
+    assert backtest.rsi_cross_down(df, level=50.0) is False
