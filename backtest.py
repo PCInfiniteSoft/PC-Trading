@@ -356,7 +356,7 @@ def parse_args():
                    help="Broker spread in pips, deducted from every trade P&L (default: 0.20)")
     p.add_argument("--scenario", type=str,   default="baseline",
                    choices=["baseline", "s1", "s2", "s3", "s3a", "s4", "s5",
-                            "st1", "st2", "st3", "s3a_st3"],
+                            "st1", "st2", "st3", "s3a_st3", "s3a_st3t"],
                    help=("Filter scenario — "
                          "s1:X1+B3(XAU_hours_expand+ATR_filter)  "
                          "s2:B1(BTC_score>=7_always)  "
@@ -365,7 +365,8 @@ def parse_args():
                          "s4:X6(XAU_sell_only)  "
                          "s5:S3+BTC_ATR>=200+XAU_score>=7  "
                          "st1:trend-sell Donchian  st2:trend-sell EMA  st3:trend-sell RSI-cross  "
-                         "s3a_st3:live s3a strategy + st3 trend-sell SELL path  "))
+                         "s3a_st3:live s3a strategy + st3 trend-sell SELL path  "
+                         "s3a_st3t:s3a_st3 with 12-bar trend-sell throttle (anti-cluster)  "))
     return p.parse_args()
 
 
@@ -465,7 +466,7 @@ def run_backtest(args) -> list:
         sc = args.scenario
         # s3a_st3 = the live s3a strategy WITH the st3 trend-sell path added, so it
         # inherits every s3a mean-reversion filter (via sc_base) plus trend_sell+ts_rsi.
-        sc_base = "s3a" if sc == "s3a_st3" else sc
+        sc_base = "s3a" if sc in ("s3a_st3", "s3a_st3t") else sc
         filter_cfg = {
             "atr_filter":       sc_base in ("s1", "s3", "s3a", "s5"),
             "atr_min":          {"BTCUSDm": 200.0, "XAUUSDm": 1.0} if sc_base == "s5" else _MIN_ATR,
@@ -479,16 +480,20 @@ def run_backtest(args) -> list:
             "btc_score_always": sc_base == "s2",
             "xau_score_min":    7 if sc_base == "s5" else 0,
             "score_blacklist":  {8} if sc_base == "s3a" else set(),
-            "trend_sell":       sc in ("st1", "st2", "st3", "s3a_st3"),
+            "trend_sell":       sc in ("st1", "st2", "st3", "s3a_st3", "s3a_st3t"),
             "ts_donchian":      sc == "st1",
             "ts_ema":           sc == "st2",
-            "ts_rsi":           sc in ("st3", "s3a_st3"),
+            "ts_rsi":           sc in ("st3", "s3a_st3", "s3a_st3t"),
+            # min M5-bars between consecutive trend-sell entries (anti-cluster throttle);
+            # 0 = no throttle. s3a_st3t adds a 12-bar (~1h) spacing to thin clustered SELLs.
+            "ts_throttle_bars": 12 if sc == "s3a_st3t" else 0,
         }
 
         director_state = {"allowed_direction": "BOTH", "h4_trend": "N/A",
                           "last_refresh_bar": -DIRECTOR_REFRESH_BARS}
         last_sl_bar: dict = {}
         open_positions: list = []
+        ts_last_bar = -10**9   # bar index of the last trend-sell entry (throttle state)
 
         # Risk management state
         sym_equity   = args.capital / len(args.symbols)
@@ -574,6 +579,9 @@ def run_backtest(args) -> list:
                     # The fired bar is claimed by the trend-sell path: we always continue
                     # afterwards so a blocked/invalid trend signal never falls through to
                     # the mean-reversion path and opens a contradictory BUY on this bar.
+                    if filter_cfg["ts_throttle_bars"] and \
+                            (i - ts_last_bar) < filter_cfg["ts_throttle_bars"]:
+                        continue   # too soon after last trend-sell entry — thin the cluster
                     ts_allowed, _ = check_guardian(
                         symbol=symbol, direction="SELL",
                         allowed_direction=director_state["allowed_direction"],
@@ -612,6 +620,7 @@ def run_backtest(args) -> list:
                                 "entry_reason":      "trend_sell",
                                 **ts_exit,
                             })
+                            ts_last_bar = i   # record entry bar for throttle spacing
                     continue  # fired bar claimed by trend-sell path — no fall-through
 
             # S1/S3/S5: ATR minimum — skip ranging/dead markets
