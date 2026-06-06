@@ -356,7 +356,7 @@ def parse_args():
                    help="Broker spread in pips, deducted from every trade P&L (default: 0.20)")
     p.add_argument("--scenario", type=str,   default="baseline",
                    choices=["baseline", "s1", "s2", "s3", "s3a", "s4", "s5",
-                            "st1", "st2", "st3"],
+                            "st1", "st2", "st3", "s3a_st3"],
                    help=("Filter scenario — "
                          "s1:X1+B3(XAU_hours_expand+ATR_filter)  "
                          "s2:B1(BTC_score>=7_always)  "
@@ -364,7 +364,8 @@ def parse_args():
                          "s3a:S3+BTC_dead_h7-8+XAU_buy_only+XAU_dead_h7+16+score!=8  "
                          "s4:X6(XAU_sell_only)  "
                          "s5:S3+BTC_ATR>=200+XAU_score>=7  "
-                         "st1:trend-sell Donchian  st2:trend-sell EMA  st3:trend-sell RSI-cross  "))
+                         "st1:trend-sell Donchian  st2:trend-sell EMA  st3:trend-sell RSI-cross  "
+                         "s3a_st3:live s3a strategy + st3 trend-sell SELL path  "))
     return p.parse_args()
 
 
@@ -462,23 +463,26 @@ def run_backtest(args) -> list:
 
         # Scenario-specific filter config (evaluated once per symbol)
         sc = args.scenario
+        # s3a_st3 = the live s3a strategy WITH the st3 trend-sell path added, so it
+        # inherits every s3a mean-reversion filter (via sc_base) plus trend_sell+ts_rsi.
+        sc_base = "s3a" if sc == "s3a_st3" else sc
         filter_cfg = {
-            "atr_filter":       sc in ("s1", "s3", "s3a", "s5"),
-            "atr_min":          {"BTCUSDm": 200.0, "XAUUSDm": 1.0} if sc == "s5" else _MIN_ATR,
-            "xau_dead_hours":   (2, 5, 6, 15, 17, 20, 21, 22) if sc in ("s1",)
-                                else (2, 5, 6, 7, 16, 17, 22) if sc == "s3a"
+            "atr_filter":       sc_base in ("s1", "s3", "s3a", "s5"),
+            "atr_min":          {"BTCUSDm": 200.0, "XAUUSDm": 1.0} if sc_base == "s5" else _MIN_ATR,
+            "xau_dead_hours":   (2, 5, 6, 15, 17, 20, 21, 22) if sc_base in ("s1",)
+                                else (2, 5, 6, 7, 16, 17, 22) if sc_base == "s3a"
                                 else (2, 5, 6, 17, 22),
-            "xau_peak_only":    sc in ("s3", "s3a", "s5"),
-            "xau_sell_only":    sc == "s4",
-            "xau_buy_only":     sc == "s3a",
-            "btc_dead_hours":   (7, 8) if sc == "s3a" else (),
-            "btc_score_always": sc == "s2",
-            "xau_score_min":    7 if sc == "s5" else 0,
-            "score_blacklist":  {8} if sc == "s3a" else set(),
-            "trend_sell":       sc in ("st1", "st2", "st3"),
+            "xau_peak_only":    sc_base in ("s3", "s3a", "s5"),
+            "xau_sell_only":    sc_base == "s4",
+            "xau_buy_only":     sc_base == "s3a",
+            "btc_dead_hours":   (7, 8) if sc_base == "s3a" else (),
+            "btc_score_always": sc_base == "s2",
+            "xau_score_min":    7 if sc_base == "s5" else 0,
+            "score_blacklist":  {8} if sc_base == "s3a" else set(),
+            "trend_sell":       sc in ("st1", "st2", "st3", "s3a_st3"),
             "ts_donchian":      sc == "st1",
             "ts_ema":           sc == "st2",
-            "ts_rsi":           sc == "st3",
+            "ts_rsi":           sc in ("st3", "s3a_st3"),
         }
 
         director_state = {"allowed_direction": "BOTH", "h4_trend": "N/A",
