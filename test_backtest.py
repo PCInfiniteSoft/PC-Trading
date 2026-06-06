@@ -522,19 +522,6 @@ def test_export_csv_writes_correct_columns(tmp_path):
     assert expected_cols.issubset(set(rows[0].keys()))
 
 
-def _down_then_flat(n_down=30, n_flat=10, base=100.0):
-    """A falling series that flattens — RSI rises back through 50 then we can
-    construct a cross. Returns an OHLCV DataFrame."""
-    rows = []
-    closes = [base - i * 0.5 for i in range(n_down)] + [base - n_down * 0.5] * n_flat
-    for i, close in enumerate(closes):
-        rows.append({
-            "time": pd.Timestamp("2026-01-01") + pd.Timedelta(minutes=5 * i),
-            "open": close, "high": close + 0.3, "low": close - 0.3,
-            "close": close, "tick_volume": 100,
-        })
-    return pd.DataFrame(rows)
-
 
 def test_donchian_breakdown_fires_on_new_low():
     import backtest
@@ -584,5 +571,28 @@ def test_rsi_cross_down_fires_when_crossing_below_level():
 
 def test_rsi_cross_down_false_when_already_below():
     import backtest
-    df = make_ohlcv(40, trend="down")
+    # Gently declining-but-choppy series: RSI stays in (0, 50) on both prev and now,
+    # so there is no downward cross through 50 (it was already below).
+    closes = [100.0]
+    for i in range(28):
+        closes.append(closes[-1] + (0.2 if i % 2 == 0 else -0.6))  # net down, choppy
+    rows = [{"time": pd.Timestamp("2026-01-01") + pd.Timedelta(minutes=5 * i),
+             "open": c, "high": c + 0.3, "low": c - 0.3, "close": c, "tick_volume": 100}
+            for i, c in enumerate(closes)]
+    df = pd.DataFrame(rows)
+    rp = backtest.calculate_rsi([c for c in closes][:-1])
+    rn = backtest.calculate_rsi([c for c in closes])
+    assert rp < 50 and rn < 50   # precondition: already below, not crossing
+    assert backtest.rsi_cross_down(df, level=50.0) is False
+
+
+def test_ema_cross_down_false_when_insufficient_bars():
+    import backtest
+    df = make_ohlcv(10, trend="down")   # 10 < slow+1 (22)
+    assert backtest.ema_cross_down(df, fast=9, slow=21) is False
+
+
+def test_rsi_cross_down_false_when_insufficient_bars():
+    import backtest
+    df = make_ohlcv(8, trend="down")    # 8 < 16
     assert backtest.rsi_cross_down(df, level=50.0) is False

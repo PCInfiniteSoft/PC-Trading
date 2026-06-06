@@ -77,8 +77,12 @@ def donchian_breakdown(m5_slice, n: int = 20) -> bool:
 
 
 def ema_cross_down(m5_slice, fast: int = 9, slow: int = 21) -> bool:
-    """True when the fast EMA is below the slow EMA and price is below the slow EMA."""
-    if len(m5_slice) < slow + 1:
+    """True when the fast EMA is below the slow EMA AND price is below the slow EMA.
+
+    This is a bearish-alignment STATE check (current bar only), not a bar-to-bar
+    crossover event — it stays True for as long as the alignment holds, by design.
+    """
+    if len(m5_slice) < slow + 1:  # require at least one full slow-EMA span of bars
         return False
     closes = m5_slice["close"]
     ema_fast = closes.ewm(span=fast, adjust=False).mean().iloc[-1]
@@ -90,7 +94,7 @@ def rsi_cross_down(m5_slice, level: float = 50.0) -> bool:
     """True when RSI crosses down through `level` on the latest bar
     (previous RSI >= level, current RSI < level)."""
     closes = m5_slice["close"].tolist()
-    if len(closes) < 16:
+    if len(closes) < 16:  # need >= 16 so closes[:-1] has 15 bars >= RSI period 14
         return False
     rsi_prev = calculate_rsi(closes[:-1])
     rsi_now = calculate_rsi(closes)
