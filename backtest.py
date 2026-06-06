@@ -355,14 +355,16 @@ def parse_args():
     p.add_argument("--spread",   type=float, default=0.20, metavar="PIPS",
                    help="Broker spread in pips, deducted from every trade P&L (default: 0.20)")
     p.add_argument("--scenario", type=str,   default="baseline",
-                   choices=["baseline", "s1", "s2", "s3", "s3a", "s4", "s5"],
+                   choices=["baseline", "s1", "s2", "s3", "s3a", "s4", "s5",
+                            "st1", "st2", "st3"],
                    help=("Filter scenario — "
                          "s1:X1+B3(XAU_hours_expand+ATR_filter)  "
                          "s2:B1(BTC_score>=7_always)  "
                          "s3:X1+X2(XAU_peak_only)  "
                          "s3a:S3+BTC_dead_h7-8+XAU_buy_only+XAU_dead_h7+16+score!=8  "
                          "s4:X6(XAU_sell_only)  "
-                         "s5:S3+BTC_ATR>=200+XAU_score>=7"))
+                         "s5:S3+BTC_ATR>=200+XAU_score>=7  "
+                         "st1:trend-sell Donchian  st2:trend-sell EMA  st3:trend-sell RSI-cross  "))
     return p.parse_args()
 
 
@@ -473,6 +475,10 @@ def run_backtest(args) -> list:
             "btc_score_always": sc == "s2",
             "xau_score_min":    7 if sc == "s5" else 0,
             "score_blacklist":  {8} if sc == "s3a" else set(),
+            "trend_sell":       sc in ("st1", "st2", "st3"),
+            "ts_donchian":      sc == "st1",
+            "ts_ema":           sc == "st2",
+            "ts_rsi":           sc == "st3",
         }
 
         director_state = {"allowed_direction": "BOTH", "h4_trend": "N/A",
@@ -547,6 +553,56 @@ def run_backtest(args) -> list:
             m5_slice  = m5_df.iloc[max(0, i - 99): i + 1]
             m15_slice = m15_df[m15_df["time"] <= bar_time].tail(100)
             h1_slice  = h1_df[h1_df["time"]  <= bar_time].tail(100)
+
+            # 4-TS. Trend-following SELL path (st1/st2/st3): a second SELL entry that
+            # fires on a momentum/breakdown trigger, gated on a confirmed D1 DOWNTREND.
+            # Runs in parallel with the mean-reversion path below; one entry per bar.
+            if filter_cfg["trend_sell"] and director_state.get("d1_trend") == "DOWNTREND":
+                ts_fired = (
+                    (filter_cfg["ts_donchian"] and donchian_breakdown(m5_slice)) or
+                    (filter_cfg["ts_ema"]      and ema_cross_down(m5_slice)) or
+                    (filter_cfg["ts_rsi"]      and rsi_cross_down(m5_slice))
+                )
+                if ts_fired:
+                    ts_allowed, _ = check_guardian(
+                        symbol=symbol, direction="SELL",
+                        allowed_direction=director_state["allowed_direction"],
+                        last_sl_bar=last_sl_bar, current_bar_idx=i,
+                        open_positions=open_positions,
+                        fixed_spread=fixed_spread, max_spread=max_spread,
+                    )
+                    if ts_allowed:
+                        ts_entry = float(m5_df.iloc[i]["close"])
+                        ts_sltp = compute_dynamic_sl_tp(ts_entry, m5_slice, "SELL")
+                        if ts_sltp is not None:
+                            ts_sl, ts_tp, _ = ts_sltp
+                            ts_exit = simulate_position_exit(
+                                m5_df, i, "SELL", ts_entry, ts_sl, ts_tp)
+                            ts_spread_cost = spread_pts * tick_value * lot
+                            ts_net = compute_net_profit(
+                                "SELL", ts_entry, ts_exit["exit_price"],
+                                lot, tick_value, point) - ts_spread_cost
+                            ts_layers = sum(1 for p in open_positions
+                                            if p["symbol"] == symbol) + 1
+                            open_positions.append({
+                                "symbol":            symbol,
+                                "direction":         "SELL",
+                                "entry_bar":         i,
+                                "entry_time":        str(bar_time),
+                                "entry_price":       ts_entry,
+                                "sl_price":          ts_sl,
+                                "tp_price":          ts_tp,
+                                "rsi_entry":         calculate_rsi(m5_slice["close"].tolist()),
+                                "score":             0,
+                                "h4_trend":          director_state.get("h4_trend", "N/A"),
+                                "d1_trend":          director_state.get("d1_trend", "SIDEWAY"),
+                                "allowed_direction": director_state["allowed_direction"],
+                                "layers":            ts_layers,
+                                "net_profit":        ts_net,
+                                "entry_reason":      "trend_sell",
+                                **ts_exit,
+                            })
+                            continue  # one entry per bar — skip the mean-reversion path
 
             # S1/S3/S5: ATR minimum — skip ranging/dead markets
             if filter_cfg["atr_filter"]:
@@ -643,6 +699,8 @@ def run_backtest(args) -> list:
                 "rsi_entry":         analyst["rsi"],
                 "score":             analyst["score"],
                 "h4_trend":          director_state.get("h4_trend", "N/A"),
+                "d1_trend":          director_state.get("d1_trend", "SIDEWAY"),
+                "entry_reason":      "baseline",
                 "allowed_direction": director_state["allowed_direction"],
                 "layers":            layers,
                 "net_profit":        net_p,
@@ -781,7 +839,8 @@ def export_csv(trades: list, path: str) -> None:
     """Export trade log to CSV."""
     fields = ["symbol", "direction", "entry_time", "entry_price",
               "exit_price", "net_profit", "result", "exit_time",
-              "rsi_entry", "score", "h4_trend", "allowed_direction", "layers"]
+              "rsi_entry", "score", "h4_trend", "d1_trend",
+              "allowed_direction", "entry_reason", "layers"]
     with open(path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
         writer.writeheader()
