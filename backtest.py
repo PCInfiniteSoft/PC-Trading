@@ -356,7 +356,7 @@ def parse_args():
                    help="Broker spread in pips, deducted from every trade P&L (default: 0.20)")
     p.add_argument("--scenario", type=str,   default="baseline",
                    choices=["baseline", "s1", "s2", "s3", "s3a", "s4", "s5",
-                            "st1", "st2", "st3", "s3a_st3", "s3a_st3t"],
+                            "st1", "st2", "st3", "s3a_st3", "s3a_st3t", "s3a_st3q"],
                    help=("Filter scenario — "
                          "s1:X1+B3(XAU_hours_expand+ATR_filter)  "
                          "s2:B1(BTC_score>=7_always)  "
@@ -366,7 +366,8 @@ def parse_args():
                          "s5:S3+BTC_ATR>=200+XAU_score>=7  "
                          "st1:trend-sell Donchian  st2:trend-sell EMA  st3:trend-sell RSI-cross  "
                          "s3a_st3:live s3a strategy + st3 trend-sell SELL path  "
-                         "s3a_st3t:s3a_st3 with 12-bar trend-sell throttle (anti-cluster)  "))
+                         "s3a_st3t:s3a_st3 with 12-bar trend-sell throttle (anti-cluster)  "
+                         "s3a_st3q:s3a_st3 with EMA-alignment quality confirm on trend-sell  "))
     return p.parse_args()
 
 
@@ -466,7 +467,7 @@ def run_backtest(args) -> list:
         sc = args.scenario
         # s3a_st3 = the live s3a strategy WITH the st3 trend-sell path added, so it
         # inherits every s3a mean-reversion filter (via sc_base) plus trend_sell+ts_rsi.
-        sc_base = "s3a" if sc in ("s3a_st3", "s3a_st3t") else sc
+        sc_base = "s3a" if sc in ("s3a_st3", "s3a_st3t", "s3a_st3q") else sc
         filter_cfg = {
             "atr_filter":       sc_base in ("s1", "s3", "s3a", "s5"),
             "atr_min":          {"BTCUSDm": 200.0, "XAUUSDm": 1.0} if sc_base == "s5" else _MIN_ATR,
@@ -480,13 +481,16 @@ def run_backtest(args) -> list:
             "btc_score_always": sc_base == "s2",
             "xau_score_min":    7 if sc_base == "s5" else 0,
             "score_blacklist":  {8} if sc_base == "s3a" else set(),
-            "trend_sell":       sc in ("st1", "st2", "st3", "s3a_st3", "s3a_st3t"),
+            "trend_sell":       sc in ("st1", "st2", "st3", "s3a_st3", "s3a_st3t", "s3a_st3q"),
             "ts_donchian":      sc == "st1",
             "ts_ema":           sc == "st2",
-            "ts_rsi":           sc in ("st3", "s3a_st3", "s3a_st3t"),
+            "ts_rsi":           sc in ("st3", "s3a_st3", "s3a_st3t", "s3a_st3q"),
             # min M5-bars between consecutive trend-sell entries (anti-cluster throttle);
             # 0 = no throttle. s3a_st3t adds a 12-bar (~1h) spacing to thin clustered SELLs.
             "ts_throttle_bars": 12 if sc == "s3a_st3t" else 0,
+            # quality filter: require bearish EMA alignment to CONFIRM the RSI cross,
+            # so we take fewer but higher-conviction trend-sell entries (s3a_st3q).
+            "ts_confirm_ema":   sc == "s3a_st3q",
         }
 
         director_state = {"allowed_direction": "BOTH", "h4_trend": "N/A",
@@ -575,6 +579,9 @@ def run_backtest(args) -> list:
                     (filter_cfg["ts_ema"]      and ema_cross_down(m5_slice)) or
                     (filter_cfg["ts_rsi"]      and rsi_cross_down(m5_slice))
                 )
+                # quality filter: require bearish EMA alignment to confirm the signal
+                if ts_fired and filter_cfg["ts_confirm_ema"]:
+                    ts_fired = ema_cross_down(m5_slice)
                 if ts_fired:
                     # The fired bar is claimed by the trend-sell path: we always continue
                     # afterwards so a blocked/invalid trend signal never falls through to
