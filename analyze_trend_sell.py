@@ -39,8 +39,14 @@ def _sharpe(rows):
     return round(statistics.mean(daily) / sd * (252 ** 0.5), 2) if sd else 0.0
 
 
-def _max_dd(rows):
-    eq = peak = mdd = 0.0
+def _max_dd(rows, base):
+    """Max drawdown % of the equity curve = base capital + cumulative P&L.
+
+    `base` MUST be the starting account equity (not 0), otherwise an early dip
+    below a tiny from-zero peak saturates the figure to ~100% for almost any curve.
+    """
+    eq = peak = float(base)
+    mdd = 0.0
     for r in sorted(rows, key=lambda x: x["exit_time"]):
         eq += float(r["net_profit"])
         peak = max(peak, eq)
@@ -49,7 +55,7 @@ def _max_dd(rows):
     return round(mdd, 1)
 
 
-def _metrics(rows):
+def _metrics(rows, base):
     profits = [float(r["net_profit"]) for r in rows]
     wins = [p for p in profits if p > 0]
     sells = [r for r in rows if r["direction"] == "SELL"]
@@ -59,7 +65,7 @@ def _metrics(rows):
         "trades": len(rows),
         "wr": round(len(wins) / len(profits) * 100, 1) if profits else 0.0,
         "pnl": round(sum(profits), 2),
-        "max_dd": _max_dd(rows),
+        "max_dd": _max_dd(rows, base),
         "sharpe": _sharpe(rows),
         "sells": len(sells),
         "sell_down": len(sell_down),
@@ -67,25 +73,34 @@ def _metrics(rows):
     }
 
 
-def main(paths):
+def main(paths, capital=300.0):
     hdr = f"{'scenario':<10}{'symbol':<10}{'trades':>7}{'WR%':>7}{'PnL':>10}" \
           f"{'MaxDD%':>8}{'Sharpe':>8}{'#SELL':>7}{'#SELLdn':>9}{'avgPnL':>9}"
+    print(f"(MaxDD% computed vs starting equity = capital/num_symbols; capital={capital})")
     print(hdr)
     print("-" * len(hdr))
     for path in paths:
         scenario = Path(path).stem
         rows = _load(path)
         symbols = sorted({r["symbol"] for r in rows})
+        # backtest.py splits capital equally across the symbols in the run
+        base = capital / len(symbols) if symbols else capital
         for sym in symbols:
             srows = [r for r in rows if r["symbol"] == sym]
-            m = _metrics(srows)
+            m = _metrics(srows, base)
             print(f"{scenario:<10}{sym:<10}{m['trades']:>7}{m['wr']:>7}"
                   f"{m['pnl']:>10}{m['max_dd']:>8}{m['sharpe']:>8}"
                   f"{m['sells']:>7}{m['sell_down']:>9}{m['avg_pnl']:>9}")
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
+    args = sys.argv[1:]
+    capital = 300.0
+    if "--capital" in args:
+        idx = args.index("--capital")
+        capital = float(args[idx + 1])
+        args = args[:idx] + args[idx + 2:]
+    if not args:
         print(__doc__)
         sys.exit(1)
-    main(sys.argv[1:])
+    main(args, capital)
