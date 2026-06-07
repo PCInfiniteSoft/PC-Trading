@@ -47,9 +47,42 @@ Sharpe/DD trade-off.
 
 **st2 (EMA) dropped.**
 
+## Addendum — st3 vs the LIVE strategy (s3a) + DD-reduction experiments (2026-06-07)
+
+The baseline above is a generic mean-reversion config, **not** the live strategy. The live
+strategy is `s3a`, so the relevant comparison is `s3a` vs `s3a + st3` (= `s3a_st3`).
+
+| scenario | symbol | trades | WR% | PnL | MaxDD%* | Sharpe | #SELLdn |
+|----------|--------|-------:|----:|----:|--------:|-------:|--------:|
+| s3a | BTC | 1384 | 34.5 | 576 | 32.3 | 3.46 | 291 |
+| s3a_st3 | BTC | 1379 | 36.8 | 869 | 54.5 | 3.58 | 506 |
+| s3a | XAU | 143 | 32.2 | 295 | 84.9 | 1.94 | **0** |
+| s3a_st3 | XAU | 249 | 35.3 | 1100 | 91.3 | 4.16 | 129 |
+
+\* **MaxDD% bug fixed 2026-06-07:** the reporter computed drawdown from a zero base, which
+saturated to ~100% for any curve. Now computed vs starting equity (`capital/num_symbols`),
+giving real figures (commit on `main`). Re-run the analyzer with `--capital 300`.
+
+**Key finding:** the live `s3a` strategy takes **zero XAU SELL** (`xau_buy_only` blocks all
+XAU shorts), so it is blind to XAU downtrends. Adding st3 unlocks XAU shorts: XAU PnL
++295→+1100 (+273%), Sharpe 1.94→4.16. BTC also improves (PnL +51%, Sharpe up). st3 raises
+DD as the cost of the extra return.
+
+**DD-reduction experiments — both FAILED to beat plain `s3a_st3`:**
+- `s3a_st3t` (12-bar trend-sell throttle): BTC DD 54.5→50 but PnL −19%, Sharpe flat; XAU
+  strictly worse (PnL −38%, DD 91→100). Spacing thins trades blindly, drops good ones.
+- `s3a_st3q` (require EMA bearish-alignment to confirm the RSI cross): BTC PnL 869→524
+  (below baseline), Sharpe 3.58→2.36. EMA-alignment barely filters in a downtrend, and
+  filtered-out bars leaked into mean-reversion BUYs (more, worse trades).
+
+**Conclusion:** plain `s3a_st3` (st3 added, unmodified) is the best risk-adjusted result.
+Entry-filtering does not improve the PnL/DD trade-off. The clean DD lever is **position
+sizing** → motivates SP-B (dynamic lot, risk-per-trade). XAU `s3a_st3q` not yet run (MT5
+disconnect during the run; rerun on a weekday — BTC-only result captured here).
+
 ## Next step
 
-Open a **separate live-port spec** to bring **st3** (and optionally A/B it with **st1**)
-into the live entry path in `trade_manager.py` — with the live GUARDIAN-L (counter-trend),
-Gate Q (spacing) and the real GPT ANALYST applied. Re-validate live before trusting absolute
-numbers (this run is mock-AI relative).
+Program **A→B→C** (see `2026-06-07-strategy-separation-design.md`): SP-A separates BTC/XAU
+strategy logic (st3 live-port lands in its Phase 3), SP-B adds dynamic lot to control DD,
+SP-C calibrates a conviction table from ~7yr history. Re-validate live before trusting
+absolute numbers (these runs are mock-AI relative).
