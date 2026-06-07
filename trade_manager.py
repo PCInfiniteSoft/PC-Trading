@@ -506,6 +506,28 @@ async def trading_job():
                         if "UPTREND" in str(macro_data.get('d1_trend', '')):
                             log.warning(f"🛑 [GUARDIAN-L] บล็อก! {s} SELL — D1 UPTREND"); break
 
+                        # ── Trend-sell (st3) path — alternative SELL trigger (XAU only).
+                        # Inherits every deterministic guard above (J/cooldown/against_trend/
+                        # spread/max_layers/Q/E/F/G/L). Fully inert until xau_trend_sell_enabled.
+                        if sp.trend_sell_enabled(s) and sp.has_path(s, "trend_sell"):
+                            m5_closes = adv.get_recent_m5_closes(s, bars=120)
+                            if sp.trend_sell_signal(s, m5_closes, macro_data.get('d1_trend', '')):
+                                # GUARDIAN-P: don't add to a losing SELL layer (mirror of AI path)
+                                if i > 0:
+                                    losing = [p for p in (positions or []) if p.type == mt5.ORDER_TYPE_SELL and p.profit < 0]
+                                    if losing:
+                                        log.warning(f"🛑 [GUARDIAN-P] บล็อก! TS L{i+1} — L{i} ยังขาดทุน ({losing[0].profit:.2f} USD)"); break
+                                ts_tick = mt5.symbol_info_tick(s)
+                                if ts_tick is not None:
+                                    ts_mult = sp.trend_sell_cfg(s).get("lot_mult", 0.5)
+                                    log.info(f"📉 [TREND-SELL] st3 fired {s} — SELL (lot_mult={ts_mult})")
+                                    if place_order(s, "SELL", ts_tick.bid, rsi, f"TS:st3:L{i+1}",
+                                                   extra={"entry_reason": "trend_sell", "scout_score": None, "lot_mult": ts_mult}):
+                                        async with shared_state.trade_layers_lock:
+                                            shared_state.TRADE_LAYERS.setdefault(s, {"buy":[False]*5, "sell":[False]*5})["sell"][i] = True
+                                        break   # bar claimed by trend-sell
+                            # if signal did not fire, fall through to the normal mean-reversion AI path below
+
                         st_data = adv.get_3_indicators(s)
                         scout = adv.get_scout_score(s, "SELL")
                         log.info(f"🔭 [SCOUT] SELL pre-check — {scout['reason']}")
@@ -747,8 +769,25 @@ def check_volatility(symbol, threshold):
     diff = abs(curr_close - prev_close) / prev_close * 100
     return diff > safe_threshold
 
+def scaled_lot(base: float, mult: float, volume_min: float, volume_step: float) -> float:
+    """Return base * mult rounded to volume_step and clamped to >= volume_min.
+    Pure function — no MT5 calls. Extracted for unit-testability."""
+    if mult == 1.0:
+        return base
+    step = volume_step if volume_step and volume_step > 0 else 0.01
+    scaled = round((base * mult) / step) * step
+    return max(volume_min, round(scaled, 2))
+
+
 def place_order(symbol, type, price, rsi, comment, extra=None):
     lot = SYMBOLS_CONFIG[symbol]["lot"]
+    # Optional position-size multiplier (e.g. reduced-size trend-sell rollout).
+    # Wrapped so the default path (mult=1.0) is byte-for-byte unchanged.
+    _mult = (extra or {}).get("lot_mult", 1.0)
+    if _mult != 1.0:
+        _si = mt5.symbol_info(symbol)
+        if _si is not None:
+            lot = scaled_lot(lot, _mult, _si.volume_min, _si.volume_step or 0.01)
 
     raw_comment = str(comment).replace('\n', ' ').replace('\r', '').strip()
     safe_comment = raw_comment[:25]

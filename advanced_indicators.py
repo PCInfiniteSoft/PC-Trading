@@ -113,6 +113,19 @@ def score_zone_proximity(price, ob: dict, order_type: str) -> int:
 
 
 # ══════════════════════════════════════════════════════════════════
+#  get_recent_m5_closes — feeds trend-sell predicates
+# ══════════════════════════════════════════════════════════════════
+
+def get_recent_m5_closes(symbol, bars=120):
+    """Return the last `bars` M5 closes as a DataFrame with a 'close' column
+    (most-recent bar last), shaped for the trend-sell predicates."""
+    rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M5, 0, bars)
+    if rates is None or len(rates) == 0:
+        return pd.DataFrame({"close": []})
+    return pd.DataFrame({"close": [r["close"] for r in rates]})
+
+
+# ══════════════════════════════════════════════════════════════════
 #  get_3_indicators — feeds ANALYST
 # ══════════════════════════════════════════════════════════════════
 
