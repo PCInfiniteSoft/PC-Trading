@@ -55,5 +55,9 @@ wired into trade_manager.py but **disabled by default**. It is fully inert until
   genuine reduced exposure on rollout, raise the base lot first (a `lot_max = 0.05` ceiling is in place).
 - **symbol_info None fallback:** if MT5 symbol_info is unavailable during a lot_mult scale, place_order
   logs a warning and uses the full base lot. Watch the logs for this warning after enabling.
+- **Forming-bar timing:** live `get_recent_m5_closes` fetches from pos 0, so `rsi_cross_down`
+  evaluates on the currently-forming M5 bar — it can fire ~1 bar earlier than the backtest (which
+  used closed bars only). Verify entry timing on the first live signals; the backtest numbers
+  assume closed-bar evaluation.
 
 Do NOT enable until the plan-A test suite passes on the deployed commit.

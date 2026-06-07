@@ -81,6 +81,11 @@ SYMBOLS_CONFIG = {
         "pullback_rsi_threshold": 42.0,  # RSI ต่ำกว่านี้ใน TRENDING_UP = Pullback entry
 
         # ── Strategy profile (SP-A) — per-symbol logic, read by trade_manager ──
+        # NOTE: only btc_momentum_guards + entry_paths(trend_sell) + xau_trend_sell_enabled
+        # are consumed by live code today. xau_buy_only / score_blacklist / "mean_reversion"
+        # are declarative (XAU buy-only + score-blacklist still enforced by RiskManager
+        # guards G/H, not these flags). Full wiring lands in SP-B — do not assume flipping
+        # them changes behavior yet.
         "strategy": {
             "entry_paths": ["mean_reversion"],
             "guards": {
@@ -125,6 +130,11 @@ SYMBOLS_CONFIG = {
         "pullback_rsi_threshold": 45.0,
 
         # ── Strategy profile (SP-A) — per-symbol logic, read by trade_manager ──
+        # NOTE: only btc_momentum_guards + entry_paths(trend_sell) + xau_trend_sell_enabled
+        # are consumed by live code today. xau_buy_only / score_blacklist / "mean_reversion"
+        # are declarative (XAU buy-only + score-blacklist still enforced by RiskManager
+        # guards G/H, not these flags). Full wiring lands in SP-B — do not assume flipping
+        # them changes behavior yet.
         "strategy": {
             "entry_paths": ["mean_reversion", "trend_sell"],
             "guards": {
