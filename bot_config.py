@@ -124,7 +124,7 @@ SYMBOLS_CONFIG = {
 
         # ── Strategy profile (SP-A) — per-symbol logic, read by trade_manager ──
         "strategy": {
-            "entry_paths": ["mean_reversion"],
+            "entry_paths": ["mean_reversion", "trend_sell"],
             "guards": {
                 "xau_buy_only": True,
                 "score_blacklist": {8},

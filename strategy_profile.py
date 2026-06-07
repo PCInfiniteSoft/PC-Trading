@@ -41,21 +41,15 @@ def trend_sell_cfg(symbol: str) -> dict:
 
 # ── Task 4: live trend-sell signal wrapper ───────────────────────────────────
 def trend_sell_signal(symbol: str, m5_closes, d1_trend: str) -> bool:
-    """st3 trigger for live use: RSI cross-down through `rsi_level`, gated on D1 DOWNTREND.
+    """st3 trend-sell trigger for live use: RSI cross-down through the profile's
+    `rsi_level`, gated on a D1 DOWNTREND and the symbol declaring a trend_sell path.
 
-    `m5_closes` is a DataFrame with a 'close' column (most recent bar last), mirroring the
-    backtest `m5_slice`. Returns False unless the symbol's profile lists the trend_sell path.
-
-    DRY: reuses rsi_cross_down from advanced_indicators (the shared, validated predicate)
-    rather than re-implementing RSI logic here. No MT5 calls inside — caller passes data.
-
-    advanced_indicators is a lightweight shared module already loaded in the live process
-    (imported by trade_manager → advanced_indicators at startup). The module-level import
-    at the top of this file is therefore free.
+    `m5_closes`: DataFrame with a 'close' column, most-recent bar last.
+    Returns True only when all gates pass.
     """
     if not has_path(symbol, "trend_sell"):
         return False
-    if str(d1_trend) != "DOWNTREND":
+    if d1_trend != "DOWNTREND":
         return False
     cfg = trend_sell_cfg(symbol)
     if cfg.get("trigger") != "rsi":

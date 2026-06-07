@@ -13,7 +13,7 @@ def test_btc_profile_mirrors_current_behavior():
 def test_xau_profile_mirrors_current_behavior():
     p = SYMBOLS_CONFIG["XAUUSDm"]["strategy"]
     # Behavior-preserving: XAU still buy-only until A2 toggle flips on.
-    assert p["entry_paths"] == ["mean_reversion"]
+    assert p["entry_paths"] == ["mean_reversion", "trend_sell"]
     assert p["guards"]["xau_buy_only"] is True
     assert p["guards"]["score_blacklist"] == {8}
     assert p["xau_trend_sell_enabled"] is False
@@ -83,7 +83,6 @@ def _closes_crossing_down_through_50():
     return pd.DataFrame(rows)
 
 
-@pytest.mark.xfail(reason="XAU trend_sell path enabled in Task 5", strict=True)
 def test_trend_sell_fires_on_rsi_cross_in_downtrend():
     df = _closes_crossing_down_through_50()
     assert sp.trend_sell_signal("XAUUSDm", df, d1_trend="DOWNTREND") is True
@@ -98,3 +97,8 @@ def test_trend_sell_blocked_when_toggle_off_symbol_btc():
     df = _closes_crossing_down_through_50()
     # BTC has no trend_sell path; signal must be False regardless of price action.
     assert sp.trend_sell_signal("BTCUSDm", df, d1_trend="DOWNTREND") is False
+
+
+def test_xau_declares_trend_sell_path_but_toggle_off():
+    assert sp.has_path("XAUUSDm", "trend_sell") is True
+    assert sp.trend_sell_enabled("XAUUSDm") is False   # rollout still OFF
