@@ -48,6 +48,7 @@ WEBHOOK_URL = conf.get("WEBHOOK_URL", "")
 SYMBOLS_CONFIG = {
     "BTCUSDm": {
         "lot": LOT,
+        "lot_max": 0.05,
 
         # SL/TP เป็น points (1 point = $0.01 สำหรับ BTC)
         # BTC ราคา ~95,000 → sl 300 pts = $300 = ~0.3% ของราคา
@@ -95,6 +96,7 @@ SYMBOLS_CONFIG = {
 
     "XAUUSDm": {
         "lot": LOT,
+        "lot_max": 0.05,
 
         # XAU ราคา ~3300 → sl 500 pts = $5 = ~0.15% ของราคา
         "sl_pts": 500,

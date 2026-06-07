@@ -516,16 +516,19 @@ async def trading_job():
                                 if i > 0:
                                     losing = [p for p in (positions or []) if p.type == mt5.ORDER_TYPE_SELL and p.profit < 0]
                                     if losing:
+                                        # break (not continue like the AI path): trend-sell abandons the
+                                        # whole bar when a lower layer is losing — never pyramids into weakness.
                                         log.warning(f"🛑 [GUARDIAN-P] บล็อก! TS L{i+1} — L{i} ยังขาดทุน ({losing[0].profit:.2f} USD)"); break
                                 ts_tick = mt5.symbol_info_tick(s)
-                                if ts_tick is not None:
-                                    ts_mult = sp.trend_sell_cfg(s).get("lot_mult", 0.5)
-                                    log.info(f"📉 [TREND-SELL] st3 fired {s} — SELL (lot_mult={ts_mult})")
-                                    if place_order(s, "SELL", ts_tick.bid, rsi, f"TS:st3:L{i+1}",
-                                                   extra={"entry_reason": "trend_sell", "scout_score": None, "lot_mult": ts_mult}):
-                                        async with shared_state.trade_layers_lock:
-                                            shared_state.TRADE_LAYERS.setdefault(s, {"buy":[False]*5, "sell":[False]*5})["sell"][i] = True
-                                        break   # bar claimed by trend-sell
+                                if ts_tick is None:
+                                    log.warning(f"⚠️ [TREND-SELL] symbol_info_tick None for {s} — skip entry"); continue
+                                ts_mult = sp.trend_sell_cfg(s).get("lot_mult", 0.5)
+                                log.info(f"📉 [TREND-SELL] st3 fired {s} — SELL (lot_mult={ts_mult})")
+                                if place_order(s, "SELL", ts_tick.bid, rsi, f"TS:st3:L{i+1}",
+                                               extra={"entry_reason": "trend_sell", "scout_score": None, "lot_mult": ts_mult}):
+                                    async with shared_state.trade_layers_lock:
+                                        shared_state.TRADE_LAYERS.setdefault(s, {"buy":[False]*5, "sell":[False]*5})["sell"][i] = True
+                                    break   # bar claimed by trend-sell
                             # if signal did not fire, fall through to the normal mean-reversion AI path below
 
                         st_data = adv.get_3_indicators(s)
@@ -788,6 +791,13 @@ def place_order(symbol, type, price, rsi, comment, extra=None):
         _si = mt5.symbol_info(symbol)
         if _si is not None:
             lot = scaled_lot(lot, _mult, _si.volume_min, _si.volume_step or 0.01)
+        else:
+            logging.getLogger(symbol).warning(f"⚠️ symbol_info None during lot_mult={_mult} — using full base lot {lot}")
+
+    # Hard safety ceiling (config lot_max). No-op at base lot 0.01; matters once SP-B scales up.
+    _lot_max = SYMBOLS_CONFIG[symbol].get("lot_max")
+    if _lot_max is not None:
+        lot = min(lot, _lot_max)
 
     raw_comment = str(comment).replace('\n', ' ').replace('\r', '').strip()
     safe_comment = raw_comment[:25]

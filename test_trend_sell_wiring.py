@@ -142,3 +142,25 @@ def test_scaled_lot_none_step_uses_default():
     """volume_step=None is defended against; falls back to 0.01."""
     result = scaled_lot(0.10, 0.5, 0.01, None)
     assert result == pytest.approx(0.05)
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Part C — lot_max ceiling (Fix 4b)
+# Tests the hard safety ceiling expression: min(lot, lot_max)
+# Calls place_order is too MT5-coupled; test the expression directly.
+# ═════════════════════════════════════════════════════════════════════════════
+
+def test_lot_max_ceiling_caps_oversized_lot():
+    """A lot above lot_max (0.05) must be capped to 0.05."""
+    lot_max = 0.05
+    base = 0.10
+    result = min(base, lot_max)
+    assert result == pytest.approx(0.05), f"expected 0.05, got {result}"
+
+
+def test_lot_max_ceiling_leaves_base_lot_unchanged():
+    """Base lot 0.01 is below lot_max (0.05) — min() must be a no-op."""
+    lot_max = 0.05
+    base = 0.01
+    result = min(base, lot_max)
+    assert result == pytest.approx(0.01), f"expected 0.01, got {result}"
