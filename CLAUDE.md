@@ -31,3 +31,29 @@ The bot detects `deploy.flag` at the start of each 1-min loop tick, removes it, 
 ## Notion
 
 Project page: https://www.notion.so/PC-Trading-35bd978527ea83bcbf30016b57b4286d
+
+## Strategy Rollout — XAU Trend-Sell (st3)
+
+The XAU trend-following SELL path (st3: RSI cross-down through 50, gated on D1 DOWNTREND) is
+wired into trade_manager.py but **disabled by default**. It is fully inert until the toggle is on.
+
+**To enable live XAU shorts:**
+1. Set `SYMBOLS_CONFIG["XAUUSDm"]["strategy"]["xau_trend_sell_enabled"] = True` in `bot_config.py`.
+2. Deploy via the normal deploy procedure (commit → push → server git pull → deploy.flag).
+3. Monitor before scaling: `#SELLdn` (SELL-in-downtrend count), `winner_MFE`, and realized XAU SELL PnL.
+
+**Pre-enable checklist (verify the day the toggle goes on, not before):**
+- **GUARDIAN-G (SELL_ONLY):** the trend-sell branch sits after GUARDIAN-G, which blocks XAU SELL
+  unless `allowed_direction == SELL_ONLY`. If the DIRECTOR rarely sets SELL_ONLY, most trend-sell
+  signals will be blocked. Check live DIRECTOR output first — this is the most likely throttle.
+- **Dead-hours E/F:** trend-sell inherits XAU dead-hour guards (the backtest path deliberately
+  skipped them). Live is intentionally more conservative — confirm this is acceptable.
+- **GUARDIAN-P pyramid:** trend-sell uses `break` (abandons the bar) when a lower layer is losing,
+  vs the AI path's `continue`. More conservative by design.
+- **Reduced-lot is a no-op at base lot 0.01:** `trend_sell.lot_mult = 0.5` cannot go below the
+  broker minimum (0.01), so it does nothing until the base lot is raised above the minimum. To get
+  genuine reduced exposure on rollout, raise the base lot first (a `lot_max = 0.05` ceiling is in place).
+- **symbol_info None fallback:** if MT5 symbol_info is unavailable during a lot_mult scale, place_order
+  logs a warning and uses the full base lot. Watch the logs for this warning after enabling.
+
+Do NOT enable until the plan-A test suite passes on the deployed commit.
