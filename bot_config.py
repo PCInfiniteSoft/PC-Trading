@@ -78,6 +78,18 @@ SYMBOLS_CONFIG = {
 
         # Pullback detection — BTC pullback ลึกกว่า XAU
         "pullback_rsi_threshold": 42.0,  # RSI ต่ำกว่านี้ใน TRENDING_UP = Pullback entry
+
+        # ── Strategy profile (SP-A) — per-symbol logic, read by trade_manager ──
+        "strategy": {
+            "entry_paths": ["mean_reversion"],
+            "guards": {
+                "xau_buy_only": False,
+                "score_blacklist": {8},
+            },
+            # st3 trend-sell config (used only when xau_trend_sell_enabled is True)
+            "trend_sell": {"trigger": "rsi", "rsi_level": 50.0, "lot_mult": 0.5},
+            "xau_trend_sell_enabled": False,
+        },
     },
 
     "XAUUSDm": {
@@ -108,5 +120,17 @@ SYMBOLS_CONFIG = {
 
         # XAU pullback ไม่ลึกเท่า BTC
         "pullback_rsi_threshold": 45.0,
+
+        # ── Strategy profile (SP-A) — per-symbol logic, read by trade_manager ──
+        "strategy": {
+            "entry_paths": ["mean_reversion"],
+            "guards": {
+                "xau_buy_only": True,
+                "score_blacklist": {8},
+            },
+            # st3 trend-sell config (used only when xau_trend_sell_enabled is True)
+            "trend_sell": {"trigger": "rsi", "rsi_level": 50.0, "lot_mult": 0.5},
+            "xau_trend_sell_enabled": False,
+        },
     }
 }
