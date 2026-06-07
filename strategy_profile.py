@@ -39,12 +39,6 @@ def trend_sell_cfg(symbol: str) -> dict:
 
 
 # ── Task 4: live trend-sell signal wrapper ───────────────────────────────────
-# NOTE: backtest.py imports MetaTrader5 at module level, but the import works
-# cleanly when MT5 is installed (as on the trading server). In test environments
-# the test suite mocks MetaTrader5 at sys.modules before any backtest import.
-# Keeping the import at module level is safe; it is inside this function to avoid
-# pulling in MT5 when strategy_profile is imported by lightweight callers that
-# do not need the backtest module.
 def trend_sell_signal(symbol: str, m5_closes, d1_trend: str) -> bool:
     """st3 trigger for live use: RSI cross-down through `rsi_level`, gated on D1 DOWNTREND.
 
@@ -53,8 +47,20 @@ def trend_sell_signal(symbol: str, m5_closes, d1_trend: str) -> bool:
 
     DRY: reuses backtest.rsi_cross_down (the validated predicate) rather than re-implementing
     RSI logic here. No MT5 calls inside — caller passes data.
+
+    `import backtest` is deferred (inside the function body) for two reasons:
+    1. Avoids circular-import risk: strategy_profile is a lightweight live module; pulling in
+       the full backtest harness (which imports MT5, advanced_indicators, etc.) at module level
+       would make every importer of strategy_profile transitively depend on MT5.
+    2. Keeps the hot-loop caller cheap: trade_manager imports strategy_profile on every tick;
+       a module-level backtest import would chain-load MT5 + pandas on startup even when
+       trend_sell is disabled or the symbol has no trend_sell path.
+    NOTE for Task 5: test_strategy_profile.py does NOT mock MetaTrader5. When the XAU
+    trend_sell path is enabled and the xfail marker is removed, this import executes for real.
+    It is safe on the trading server (MT5 installed), but consider copying the
+    sys.modules mock from test_backtest.py if the suite needs to run without MT5.
     """
-    import backtest  # inside function: avoids MT5 import side-effects for lightweight callers
+    import backtest  # deferred — see docstring
 
     if not has_path(symbol, "trend_sell"):
         return False
