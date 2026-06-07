@@ -85,6 +85,7 @@ SYMBOLS_CONFIG = {
             "guards": {
                 "xau_buy_only": False,
                 "score_blacklist": {8},
+                "btc_momentum_guards": True,
             },
             # st3 trend-sell config (used only when xau_trend_sell_enabled is True)
             "trend_sell": {"trigger": "rsi", "rsi_level": 50.0, "lot_mult": 0.5},

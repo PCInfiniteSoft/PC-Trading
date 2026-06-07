@@ -14,6 +14,7 @@ from bot_config import *
 from trade_noti import send_trade_notification
 from discord.ext import tasks
 from risk_manager import RiskManager
+import strategy_profile as sp
 
 DEPLOY_FLAG = "deploy.flag"
 
@@ -414,7 +415,7 @@ async def trading_job():
                             log.warning(f"🛑 [GUARDIAN-I] บล็อก! {s} BUY — H4 DOWNTREND"); break
                         if "DOWNTREND" in str(macro_data.get('d1_trend', '')):
                             log.warning(f"🛑 [GUARDIAN-L] บล็อก! {s} BUY — D1 DOWNTREND"); break
-                        if "BTC" in s and "UPTREND" not in str(macro_data.get('h4_trend', '')):
+                        if sp.guard_enabled(s, "btc_momentum_guards") and "UPTREND" not in str(macro_data.get('h4_trend', '')):
                             log.warning(f"🛑 [GUARDIAN-N] บล็อก! {s} BUY — H4 ไม่ใช่ UPTREND ({macro_data.get('h4_trend', 'N/A')})"); break
 
                         st_data = adv.get_3_indicators(s)
@@ -423,7 +424,7 @@ async def trading_job():
 
                         scout = adv.get_scout_score(s, "BUY")
                         log.info(f"🔭 [SCOUT] BUY pre-check — {scout['reason']}")
-                        if "BTC" in s and scout.get('macd_signal') == "BEARISH":
+                        if sp.guard_enabled(s, "btc_momentum_guards") and scout.get('macd_signal') == "BEARISH":
                             log.warning(f"🛑 [GUARDIAN-O] บล็อก! {s} BUY — MACD BEARISH (momentum ยังลง)"); break
                         if ai.AI_IS_ONLINE:
                             tick = mt5.symbol_info_tick(s)

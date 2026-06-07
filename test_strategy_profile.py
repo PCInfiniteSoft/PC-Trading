@@ -51,3 +51,9 @@ def test_trend_sell_cfg_fallback():
     assert cfg["trigger"] == "rsi"   # returns _EMPTY default
     assert cfg["rsi_level"] == 50.0
     assert cfg["lot_mult"] == 0.5
+
+
+def test_btc_has_momentum_guards_xau_does_not():
+    # GUARDIAN-N/O are BTC-only today; profile must preserve that exactly.
+    assert sp.guard_enabled("BTCUSDm", "btc_momentum_guards") is True
+    assert sp.guard_enabled("XAUUSDm", "btc_momentum_guards") is False
