@@ -39,3 +39,15 @@ def test_guard_enabled_defaults_false_for_unknown_symbol():
 
 def test_trend_sell_enabled():
     assert sp.trend_sell_enabled("XAUUSDm") is False
+
+
+def test_score_blacklist():
+    assert sp.score_blacklist("XAUUSDm") == {8}
+    assert sp.score_blacklist("NOPE") == set()  # unknown symbol fallback
+
+
+def test_trend_sell_cfg_fallback():
+    cfg = sp.trend_sell_cfg("NOPE")
+    assert cfg["trigger"] == "rsi"   # returns _EMPTY default
+    assert cfg["rsi_level"] == 50.0
+    assert cfg["lot_mult"] == 0.5
