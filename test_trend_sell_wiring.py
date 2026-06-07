@@ -10,6 +10,9 @@ import pandas as pd
 import pytest
 
 # ── Mock MetaTrader5 before any project module imports it ──────────────────────
+# Use setdefault so we don't overwrite a mock already installed by a sibling
+# test file (e.g. test_backtest.py) — clobbering it breaks that file's tests
+# because its test functions reference their own local _mt5_mock variable.
 _mt5_mock = MagicMock()
 _mt5_mock.TIMEFRAME_M5  = 5
 _mt5_mock.TIMEFRAME_M15 = 15
@@ -18,40 +21,43 @@ _mt5_mock.TIMEFRAME_H4  = 16388
 _mt5_mock.TIMEFRAME_D1  = 16408
 _mt5_mock.ORDER_TYPE_BUY  = 0
 _mt5_mock.ORDER_TYPE_SELL = 1
-sys.modules['MetaTrader5'] = _mt5_mock
+sys.modules.setdefault('MetaTrader5', _mt5_mock)
 
 # ── Mock heavy deps not needed for these pure-function tests ───────────────────
-sys.modules['shared_state']       = MagicMock()
-sys.modules['discord']            = MagicMock()
-sys.modules['discord.ext']        = MagicMock()
-sys.modules['discord.ext.tasks']  = MagicMock()
-sys.modules['openai']             = MagicMock()
-sys.modules['cloudscraper']       = MagicMock()
-sys.modules['customtkinter']      = MagicMock()
-sys.modules['flask']              = MagicMock()
-sys.modules['pandas_ta']          = MagicMock()
-sys.modules['ai_engine']          = MagicMock()
-sys.modules['system_utils']       = MagicMock()
-sys.modules['database_manager']   = MagicMock()
-sys.modules['trade_noti']         = MagicMock()
-sys.modules['risk_manager']       = MagicMock()
+# Also use setdefault to avoid breaking sibling mocks already in place.
+sys.modules.setdefault('shared_state',       MagicMock())
+sys.modules.setdefault('discord',            MagicMock())
+sys.modules.setdefault('discord.ext',        MagicMock())
+sys.modules.setdefault('discord.ext.tasks',  MagicMock())
+sys.modules.setdefault('openai',             MagicMock())
+sys.modules.setdefault('cloudscraper',       MagicMock())
+sys.modules.setdefault('customtkinter',      MagicMock())
+sys.modules.setdefault('flask',              MagicMock())
+sys.modules.setdefault('pandas_ta',          MagicMock())
+sys.modules.setdefault('ai_engine',          MagicMock())
+sys.modules.setdefault('system_utils',       MagicMock())
+sys.modules.setdefault('database_manager',   MagicMock())
+sys.modules.setdefault('trade_noti',   MagicMock())
+sys.modules.setdefault('risk_manager', MagicMock())
 
-# bot_config needs SYMBOLS_CONFIG and MAGIC_NUMBER at minimum
-_bot_config_mock = MagicMock()
-_bot_config_mock.SYMBOLS_CONFIG = {
-    "XAUUSD": {"lot": 0.01, "sl": 0, "max_slip": 300,
-                "strategy": {
-                    "entry_paths": ["mean_reversion", "trend_sell"],
-                    "guards": {},
-                    "trend_sell": {"trigger": "rsi", "rsi_level": 50.0, "lot_mult": 0.5},
-                    "xau_trend_sell_enabled": False,
-                }},
-}
-_bot_config_mock.MAGIC_NUMBER = 12345
-_bot_config_mock.DAILY_LOSS_LIMIT = 50.0
-# Make wildcard 'from bot_config import *' resolve SYMBOLS_CONFIG, MAGIC_NUMBER, etc.
-_bot_config_mock.__all__ = ["SYMBOLS_CONFIG", "MAGIC_NUMBER", "DAILY_LOSS_LIMIT"]
-sys.modules['bot_config'] = _bot_config_mock
+# bot_config: use the real module if test_strategy_profile.py already loaded it
+# (it does `from bot_config import SYMBOLS_CONFIG` at collection time).
+# If somehow not yet loaded, install a minimal mock.
+if 'bot_config' not in sys.modules:
+    _bot_config_mock = MagicMock()
+    _bot_config_mock.SYMBOLS_CONFIG = {
+        "XAUUSD": {"lot": 0.01, "sl": 0, "max_slip": 300,
+                    "strategy": {
+                        "entry_paths": ["mean_reversion", "trend_sell"],
+                        "guards": {},
+                        "trend_sell": {"trigger": "rsi", "rsi_level": 50.0, "lot_mult": 0.5},
+                        "xau_trend_sell_enabled": False,
+                    }},
+    }
+    _bot_config_mock.MAGIC_NUMBER = 12345
+    _bot_config_mock.DAILY_LOSS_LIMIT = 50.0
+    _bot_config_mock.__all__ = ["SYMBOLS_CONFIG", "MAGIC_NUMBER", "DAILY_LOSS_LIMIT"]
+    sys.modules['bot_config'] = _bot_config_mock
 
 import advanced_indicators as adv  # noqa: E402
 from trade_manager import scaled_lot  # noqa: E402
