@@ -38,6 +38,17 @@ def calculate_rsi(prices, period=14):
     return round(rsi.fillna(100).iloc[-1], 2)
 
 
+def rsi_cross_down(m5_slice, level: float = 50.0) -> bool:
+    """True when RSI crosses down through `level` on the latest bar
+    (previous RSI >= level, current RSI < level)."""
+    closes = m5_slice["close"].tolist()
+    if len(closes) < 16:  # need >= 16 so closes[:-1] has 15 bars >= RSI period 14
+        return False
+    rsi_prev = calculate_rsi(closes[:-1])
+    rsi_now = calculate_rsi(closes)
+    return bool(rsi_prev >= level and rsi_now < level)
+
+
 # ══════════════════════════════════════════════════════════════════
 #  [UPGRADE #4] Proper SMC Order Block detection
 #  Last opposing candle before a strong impulse move
@@ -99,6 +110,19 @@ def score_zone_proximity(price, ob: dict, order_type: str) -> int:
         return 0
 
     return 0
+
+
+# ══════════════════════════════════════════════════════════════════
+#  get_recent_m5_closes — feeds trend-sell predicates
+# ══════════════════════════════════════════════════════════════════
+
+def get_recent_m5_closes(symbol, bars=120):
+    """Return the last `bars` M5 closes as a DataFrame with a 'close' column
+    (most-recent bar last), shaped for the trend-sell predicates."""
+    rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M5, 0, bars)
+    if rates is None or len(rates) == 0:
+        return pd.DataFrame({"close": []})
+    return pd.DataFrame({"close": [r["close"] for r in rates]})
 
 
 # ══════════════════════════════════════════════════════════════════

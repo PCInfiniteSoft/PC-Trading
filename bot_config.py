@@ -48,6 +48,7 @@ WEBHOOK_URL = conf.get("WEBHOOK_URL", "")
 SYMBOLS_CONFIG = {
     "BTCUSDm": {
         "lot": LOT,
+        "lot_max": 0.05,
 
         # SL/TP เป็น points (1 point = $0.01 สำหรับ BTC)
         # BTC ราคา ~95,000 → sl 300 pts = $300 = ~0.3% ของราคา
@@ -78,10 +79,29 @@ SYMBOLS_CONFIG = {
 
         # Pullback detection — BTC pullback ลึกกว่า XAU
         "pullback_rsi_threshold": 42.0,  # RSI ต่ำกว่านี้ใน TRENDING_UP = Pullback entry
+
+        # ── Strategy profile (SP-A) — per-symbol logic, read by trade_manager ──
+        # NOTE: only btc_momentum_guards + entry_paths(trend_sell) + xau_trend_sell_enabled
+        # are consumed by live code today. xau_buy_only / score_blacklist / "mean_reversion"
+        # are declarative (XAU buy-only + score-blacklist still enforced by RiskManager
+        # guards G/H, not these flags). Full wiring lands in SP-B — do not assume flipping
+        # them changes behavior yet.
+        "strategy": {
+            "entry_paths": ["mean_reversion"],
+            "guards": {
+                "xau_buy_only": False,
+                "score_blacklist": {8},
+                "btc_momentum_guards": True,
+            },
+            # st3 trend-sell config (used only when xau_trend_sell_enabled is True)
+            "trend_sell": {"trigger": "rsi", "rsi_level": 50.0, "lot_mult": 0.5},
+            "xau_trend_sell_enabled": False,
+        },
     },
 
     "XAUUSDm": {
         "lot": LOT,
+        "lot_max": 0.05,
 
         # XAU ราคา ~3300 → sl 500 pts = $5 = ~0.15% ของราคา
         "sl_pts": 500,
@@ -108,5 +128,22 @@ SYMBOLS_CONFIG = {
 
         # XAU pullback ไม่ลึกเท่า BTC
         "pullback_rsi_threshold": 45.0,
+
+        # ── Strategy profile (SP-A) — per-symbol logic, read by trade_manager ──
+        # NOTE: only btc_momentum_guards + entry_paths(trend_sell) + xau_trend_sell_enabled
+        # are consumed by live code today. xau_buy_only / score_blacklist / "mean_reversion"
+        # are declarative (XAU buy-only + score-blacklist still enforced by RiskManager
+        # guards G/H, not these flags). Full wiring lands in SP-B — do not assume flipping
+        # them changes behavior yet.
+        "strategy": {
+            "entry_paths": ["mean_reversion", "trend_sell"],
+            "guards": {
+                "xau_buy_only": True,
+                "score_blacklist": {8},
+            },
+            # st3 trend-sell config (used only when xau_trend_sell_enabled is True)
+            "trend_sell": {"trigger": "rsi", "rsi_level": 50.0, "lot_mult": 0.5},
+            "xau_trend_sell_enabled": False,
+        },
     }
 }
