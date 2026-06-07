@@ -18,3 +18,24 @@ def test_xau_profile_mirrors_current_behavior():
     assert p["guards"]["score_blacklist"] == {8}
     assert p["xau_trend_sell_enabled"] is False
     assert p["trend_sell"] == {"trigger": "rsi", "rsi_level": 50.0, "lot_mult": 0.5}
+
+
+# ── Task 2: strategy_profile.py accessor tests ──────────────────────────────
+import strategy_profile as sp
+
+
+def test_get_profile_returns_dict():
+    assert sp.get_profile("XAUUSDm")["guards"]["xau_buy_only"] is True
+
+
+def test_has_path():
+    assert sp.has_path("BTCUSDm", "mean_reversion") is True
+    assert sp.has_path("BTCUSDm", "trend_sell") is False
+
+
+def test_guard_enabled_defaults_false_for_unknown_symbol():
+    assert sp.guard_enabled("NOPE", "xau_buy_only") is False
+
+
+def test_trend_sell_enabled():
+    assert sp.trend_sell_enabled("XAUUSDm") is False
