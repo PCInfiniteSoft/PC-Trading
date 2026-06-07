@@ -38,6 +38,17 @@ def calculate_rsi(prices, period=14):
     return round(rsi.fillna(100).iloc[-1], 2)
 
 
+def rsi_cross_down(m5_slice, level: float = 50.0) -> bool:
+    """True when RSI crosses down through `level` on the latest bar
+    (previous RSI >= level, current RSI < level)."""
+    closes = m5_slice["close"].tolist()
+    if len(closes) < 16:  # need >= 16 so closes[:-1] has 15 bars >= RSI period 14
+        return False
+    rsi_prev = calculate_rsi(closes[:-1])
+    rsi_now = calculate_rsi(closes)
+    return bool(rsi_prev >= level and rsi_now < level)
+
+
 # ══════════════════════════════════════════════════════════════════
 #  [UPGRADE #4] Proper SMC Order Block detection
 #  Last opposing candle before a strong impulse move

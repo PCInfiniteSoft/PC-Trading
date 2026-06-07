@@ -13,6 +13,7 @@ from advanced_indicators import (
     _calc_atr_chandelier,
     _find_smc_order_block,
     calculate_rsi,
+    rsi_cross_down,
     score_zone_proximity,
 )
 from bot_config import ACCOUNT_ID, PWD, SRV, SYMBOLS_CONFIG
@@ -88,17 +89,6 @@ def ema_cross_down(m5_slice, fast: int = 9, slow: int = 21) -> bool:
     ema_fast = closes.ewm(span=fast, adjust=False).mean().iloc[-1]
     ema_slow = closes.ewm(span=slow, adjust=False).mean().iloc[-1]
     return bool(ema_fast < ema_slow and float(closes.iloc[-1]) < ema_slow)
-
-
-def rsi_cross_down(m5_slice, level: float = 50.0) -> bool:
-    """True when RSI crosses down through `level` on the latest bar
-    (previous RSI >= level, current RSI < level)."""
-    closes = m5_slice["close"].tolist()
-    if len(closes) < 16:  # need >= 16 so closes[:-1] has 15 bars >= RSI period 14
-        return False
-    rsi_prev = calculate_rsi(closes[:-1])
-    rsi_now = calculate_rsi(closes)
-    return bool(rsi_prev >= level and rsi_now < level)
 
 
 def compute_director(h4_slice: pd.DataFrame, d1_slice: pd.DataFrame) -> dict:

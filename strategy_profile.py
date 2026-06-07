@@ -4,6 +4,7 @@
 Pure functions over bot_config.SYMBOLS_CONFIG[symbol]["strategy"]. No MT5/IO.
 Centralizes the per-symbol logic that used to be inline in trade_manager.py.
 """
+from advanced_indicators import rsi_cross_down
 from bot_config import SYMBOLS_CONFIG
 
 _EMPTY = {
@@ -45,23 +46,13 @@ def trend_sell_signal(symbol: str, m5_closes, d1_trend: str) -> bool:
     `m5_closes` is a DataFrame with a 'close' column (most recent bar last), mirroring the
     backtest `m5_slice`. Returns False unless the symbol's profile lists the trend_sell path.
 
-    DRY: reuses backtest.rsi_cross_down (the validated predicate) rather than re-implementing
-    RSI logic here. No MT5 calls inside — caller passes data.
+    DRY: reuses rsi_cross_down from advanced_indicators (the shared, validated predicate)
+    rather than re-implementing RSI logic here. No MT5 calls inside — caller passes data.
 
-    `import backtest` is deferred (inside the function body) for two reasons:
-    1. Avoids circular-import risk: strategy_profile is a lightweight live module; pulling in
-       the full backtest harness (which imports MT5, advanced_indicators, etc.) at module level
-       would make every importer of strategy_profile transitively depend on MT5.
-    2. Keeps the hot-loop caller cheap: trade_manager imports strategy_profile on every tick;
-       a module-level backtest import would chain-load MT5 + pandas on startup even when
-       trend_sell is disabled or the symbol has no trend_sell path.
-    NOTE for Task 5: test_strategy_profile.py does NOT mock MetaTrader5. When the XAU
-    trend_sell path is enabled and the xfail marker is removed, this import executes for real.
-    It is safe on the trading server (MT5 installed), but consider copying the
-    sys.modules mock from test_backtest.py if the suite needs to run without MT5.
+    advanced_indicators is a lightweight shared module already loaded in the live process
+    (imported by trade_manager → advanced_indicators at startup). The module-level import
+    at the top of this file is therefore free.
     """
-    import backtest  # deferred — see docstring
-
     if not has_path(symbol, "trend_sell"):
         return False
     if str(d1_trend) != "DOWNTREND":
@@ -69,4 +60,4 @@ def trend_sell_signal(symbol: str, m5_closes, d1_trend: str) -> bool:
     cfg = trend_sell_cfg(symbol)
     if cfg.get("trigger") != "rsi":
         return False
-    return bool(backtest.rsi_cross_down(m5_closes, level=cfg.get("rsi_level", 50.0)))
+    return bool(rsi_cross_down(m5_closes, level=cfg.get("rsi_level", 50.0)))
