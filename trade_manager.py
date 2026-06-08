@@ -782,6 +782,23 @@ def scaled_lot(base: float, mult: float, volume_min: float, volume_step: float) 
     return max(volume_min, round(scaled, 2))
 
 
+def guardian_m_should_close(fill_price, send_ref_price, point, max_slip):
+    """Decide whether GUARDIAN-M should slip-close a just-filled order.
+
+    Returns (should_close, slippage_pts).
+
+    `send_ref_price` MUST be the live market price the order was actually sent at
+    (a tick fetched immediately before order_send) — NOT a caller-supplied price
+    captured earlier. place_order can run seconds after the caller snapped `price`
+    (e.g. across `await ai.ai_analysis`); measuring against that stale snapshot turns
+    decision-to-execution drift into phantom slippage and false-fires GUARDIAN-M,
+    churning during volatile bursts (2026-06-06 BTC). Pure function — no MT5 calls."""
+    if point <= 0:
+        return (False, 0.0)
+    slippage = abs(fill_price - send_ref_price) / point
+    return (slippage > max_slip, slippage)
+
+
 def place_order(symbol, type, price, rsi, comment, extra=None):
     lot = SYMBOLS_CONFIG[symbol]["lot"]
     # Optional position-size multiplier (e.g. reduced-size trend-sell rollout).
@@ -801,6 +818,14 @@ def place_order(symbol, type, price, rsi, comment, extra=None):
 
     raw_comment = str(comment).replace('\n', ' ').replace('\r', '').strip()
     safe_comment = raw_comment[:25]
+
+    # Re-price off a fresh tick. place_order may run seconds after the caller snapped
+    # `price` (e.g. across `await ai.ai_analysis`), so that snapshot can be stale. Pricing
+    # the order — and the GUARDIAN-M slippage reference — off the live market at send time
+    # stops decision-to-execution drift from masquerading as slippage (churn 2026-06-06).
+    _fresh = mt5.symbol_info_tick(symbol)
+    if _fresh is not None:
+        price = _fresh.bid if type == "SELL" else _fresh.ask
 
     risk_level = getattr(shared_state, 'CURRENT_RISK_LEVEL', 3)
     base_pct = 0.001 
@@ -848,7 +873,10 @@ def place_order(symbol, type, price, rsi, comment, extra=None):
         logging.getLogger(symbol).error(f"❌ MT5 ปฏิเสธคำสั่ง! สาเหตุ: {res.comment} (Code: {res.retcode})")
         return False
 
-    slippage = abs(res.price - price) / mt5.symbol_info(symbol).point
+    # GUARDIAN-M slippage measured against the FRESH price the order was sent at
+    # (re-priced above), not the caller's possibly-stale snapshot.
+    max_slip = SYMBOLS_CONFIG.get(symbol, {}).get('max_slip', 300)
+    should_close, slippage = guardian_m_should_close(res.price, price, symbol_info.point, max_slip)
     logging.getLogger(symbol).info(f"✅ {type} {symbol} {lot} lots at {res.price} (RSI: {rsi:.2f}) | {comment} | Slip: {slippage:.1f}pts")
 
     strat = ai.STRATEGY_DATA.get(symbol, {})
@@ -872,9 +900,7 @@ def place_order(symbol, type, price, rsi, comment, extra=None):
         d1_trend=macro_data.get("d1_trend"),
     )
 
-    sym_cfg = SYMBOLS_CONFIG.get(symbol, {})
-    max_slip = sym_cfg.get('max_slip', 300)
-    if slippage > max_slip:
+    if should_close:
         logging.getLogger(symbol).warning(f"🛑 [GUARDIAN-M] Slip {slippage:.0f}pts > {max_slip} — ปิดออเดอร์ทันที")
         close_one_order(symbol=symbol, reason=f"GUARDIAN-M: slip {slippage:.0f}pts", ticket=res.order)
         return False
