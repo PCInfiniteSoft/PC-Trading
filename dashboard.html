@@ -6,7 +6,16 @@
 <title>PC Trading — Dashboard</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#0a0c0f;--bg2:#0e1117;--bg3:#141820;--bg4:#1a2030;--border:#1e2a3a;--border2:#243040;--text:#c8d4e8;--text2:#7a8fa8;--text3:#4a5a70;--accent:#00d4aa;--accent2:#0099ff;--green:#00e676;--red:#ff3d57;--yellow:#ffc107;--purple:#a855f7;--orange:#ff6b35;--pink:#ff4fa3;--font-mono:'JetBrains Mono',monospace;--font-ui:'Inter',sans-serif}
+:root{
+  --bg:#0d1117;--bg2:#0f1524;--bg3:#151c2c;--bg4:#1b2336;
+  --border:#232b3d;--border2:#2a3a52;
+  --text:#d5deec;--text2:#94a3b8;--text3:#64748b;
+  --accent:#7aa2ff;--accent2:#5e8bff;
+  --green:#4ade80;--red:#fb7185;--yellow:#fbbf24;--purple:#a855f7;--orange:#ff6b35;--pink:#ff4fa3;
+  --r2:#fb7185;
+  --font-mono:'JetBrains Mono',monospace;--font-ui:'Inter',sans-serif;
+  --card-shadow:0 2px 8px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.05);
+}
 *{margin:0;padding:0;box-sizing:border-box}
 body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size:12px;min-height:100vh;overflow-x:hidden}
 ::-webkit-scrollbar{width:4px;height:4px}::-webkit-scrollbar-track{background:var(--bg2)}::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
@@ -16,7 +25,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
 .tb-stat{display:flex;flex-direction:column;padding:0 12px;border-right:1px solid var(--border);line-height:1.3;white-space:nowrap}
 .tb-stat .lbl{font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.08em}
 .tb-stat .val{font-family:var(--font-mono);font-size:13px;font-weight:600}
-.val.g{color:var(--green)}.val.r{color:var(--red)}.val.a{color:var(--accent)}.val.b{color:var(--accent2)}.val.y{color:var(--yellow)}
+.val.g{color:var(--green)}.val.r{color:var(--red)}.val.a{color:var(--accent)}.val.b{color:var(--accent2)}.val.y{color:var(--yellow)}.val.r2{color:var(--red)}.r2{color:var(--red)}
 .regime-wrap{margin-left:12px;display:flex;align-items:center;gap:6px}
 .rdot{width:7px;height:7px;border-radius:50%;background:var(--yellow);animation:pulse 2s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
@@ -27,14 +36,15 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
 .mdemo{background:rgba(0,153,255,.12);color:var(--accent2);border:1px solid rgba(0,153,255,.25)}
 .mpaper{background:rgba(168,85,247,.12);color:var(--purple);border:1px solid rgba(168,85,247,.25)}
 .clock{font-family:var(--font-mono);font-size:10px;color:var(--text3)}
-.conn-dot{width:6px;height:6px;border-radius:50%;background:var(--red);margin-right:2px;flex-shrink:0}
-.conn-dot.online{background:var(--green)}
 /* LAYOUT */
 .layout{display:grid;grid-template-columns:220px 1fr 255px;height:calc(100vh - 76px)}
 /* SIDEBAR */
 .sidebar,.rsidebar{background:var(--bg2);display:flex;flex-direction:column;overflow:hidden}
 .sidebar{border-right:1px solid var(--border)}
 .rsidebar{border-left:1px solid var(--border)}
+.rsidebar{background:var(--bg);gap:9px;padding:9px}
+.rsidebar .sec-title{background:transparent;border:none;padding:0 0 6px;color:var(--text3)}
+#macro-list{background:var(--bg3);border-radius:12px;box-shadow:var(--card-shadow);padding:10px}
 .sec-title{padding:7px 10px 5px;font-size:9px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.1em;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);background:var(--bg3);flex-shrink:0}
 .sec-title .cnt{background:var(--bg4);padding:1px 5px;border-radius:2px;color:var(--text2);font-size:9px}
 /* equity chart */
@@ -52,6 +62,13 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
 .track{height:5px;background:var(--bg4);border-radius:3px;overflow:hidden}
 .fill-risk{height:100%;border-radius:3px;background:linear-gradient(90deg,var(--green),var(--yellow),var(--red));transition:width .5s}
 .fill-dd{height:100%;border-radius:3px;background:linear-gradient(90deg,var(--green),var(--yellow) 50%,var(--red));transition:width .5s}
+/* sidebar cards */
+.sidebar{background:var(--bg);gap:9px;padding:9px}
+.sidebar .card{background:var(--bg3);border-radius:12px;box-shadow:var(--card-shadow);padding:10px;margin:0}
+.sidebar .sec-title{background:transparent;border:none;padding:0 0 6px;color:var(--text3)}
+.reg-bar{background:transparent;border:none;padding:6px 0 0}
+.reg-seg{border-radius:6px}
+.agent-row{border-radius:9px}
 /* regime bar */
 .reg-bar{display:flex;gap:2px;padding:5px 10px;border-bottom:1px solid var(--border);background:var(--bg3);flex-shrink:0}
 .reg-seg{flex:1;height:18px;border-radius:2px;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;letter-spacing:.05em;font-family:var(--font-mono);cursor:default;transition:opacity .2s;opacity:.3}
@@ -81,9 +98,8 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
 .bwarn{background:rgba(255,193,7,.12);color:var(--yellow);border:1px solid rgba(255,193,7,.2)}
 /* MAIN */
 .main{display:flex;flex-direction:column;overflow:hidden;background:var(--bg)}
-.stats-row{display:grid;grid-template-columns:repeat(6,1fr);border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0}
-.sc{padding:7px 12px;border-right:1px solid var(--border);display:flex;flex-direction:column;gap:2px}
-.sc:last-child{border-right:none}
+.stats-row{display:grid;grid-template-columns:repeat(6,1fr);gap:9px;background:transparent;border:none;padding:9px 9px 0;flex-shrink:0}
+.sc{background:var(--bg3);border-radius:10px;box-shadow:var(--card-shadow);padding:9px 11px}
 .sc .lbl{font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em}
 .sc .val{font-family:var(--font-mono);font-size:15px;font-weight:700;line-height:1}
 .sc .sub{font-size:9px;color:var(--text3);font-family:var(--font-mono)}
@@ -95,9 +111,9 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
 .hb-txt .hl{color:var(--green)}
 .hb-time{margin-left:auto;font-family:var(--font-mono);font-size:9px;color:var(--text3)}
 /* 4-panel grid */
-.grid4{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:1px;flex:1;overflow:hidden;background:var(--border)}
-.panel{background:var(--bg2);display:flex;flex-direction:column;overflow:hidden}
-.ph{display:flex;align-items:center;justify-content:space-between;padding:6px 10px;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--bg3)}
+.grid4{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:9px;flex:1;overflow:hidden;background:transparent;padding:9px}
+.panel{background:var(--bg3);display:flex;flex-direction:column;overflow:hidden;border-radius:12px;box-shadow:var(--card-shadow)}
+.ph{display:flex;align-items:center;justify-content:space-between;padding:8px 11px;border-bottom:1px solid var(--border);flex-shrink:0;background:transparent}
 .ph-title{font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.08em;display:flex;align-items:center;gap:5px}
 .pdot{width:6px;height:6px;border-radius:50%}
 .pdot.g{background:var(--green)}.pdot.b{background:var(--accent2)}.pdot.y{background:var(--yellow)}.pdot.p{background:var(--purple)}
@@ -301,6 +317,9 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
 
   /* Regime bar: smaller */
   .reg-seg{font-size:7px;height:15px}
+
+  .stats-row{grid-template-columns:repeat(2,1fr)!important}
+  .floor-placeholder{min-height:120px}
 }
 </style>
 </head>
@@ -309,19 +328,8 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
 <!-- TOPBAR -->
 <div class="topbar">
   <div class="logo">⬡ PC TRADING</div>
-  <div class="tb-stat"><span class="lbl">Portfolio</span><span class="val" id="tb-balance">—</span></div>
-  <div class="tb-stat"><span class="lbl">Equity</span><span class="val" id="tb-equity">—</span></div>
-  <div class="tb-stat"><span class="lbl">Float P&L</span><span class="val" id="tb-float">—</span></div>
-  <div class="tb-stat"><span class="lbl">Today P&L</span><span class="val" id="tb-today">—</span></div>
-  <div class="tb-stat"><span class="lbl">Drawdown</span><span class="val" id="tb-dd">—</span></div>
-  <div class="tb-stat"><span class="lbl">Open</span><span class="val" id="tb-open">—</span></div>
-  <div class="tb-stat"><span class="lbl">Total Trades</span><span class="val b" id="tb-total">—</span></div>
-  <div class="tb-stat"><span class="lbl">Win Rate</span><span class="val" id="tb-wr">—</span></div>
   <div class="tb-stat"><span class="lbl">Scan #</span><span class="val a" id="tb-scan">—</span></div>
-  <div class="tb-stat"><span class="lbl">AI Status</span><span class="val" id="tb-ai">—</span></div>
-  <div class="regime-wrap" id="regime-pills-wrap" style="gap:5px;"></div>
   <div class="tb-right">
-    <div class="conn-dot" id="conn-dot"></div>
     <span class="mbadge mlive" id="mode-live">LIVE</span>
     <span class="mbadge mdemo" id="mode-demo">DEMO</span>
     <span class="mbadge mpaper" id="mode-paper">PAPER</span>
@@ -356,66 +364,76 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
 
 <!-- LEFT SIDEBAR -->
 <div class="sidebar">
-  <!-- Equity chart -->
-  <div class="eq-wrap">
-    <div class="eq-top"><span class="eq-lbl">Equity</span><span class="eq-chg" id="eq-chg">—</span></div>
-    <div class="eq-val" id="eq-val">—</div>
-    <canvas id="eqCanvas" height="44"></canvas>
+  <!-- Card 1: Account -->
+  <div class="card">
+    <!-- Equity chart -->
+    <div class="eq-wrap">
+      <div class="eq-top"><span class="eq-lbl">Equity</span><span class="eq-chg" id="eq-chg">—</span></div>
+      <div class="eq-val" id="eq-val">—</div>
+      <canvas id="eqCanvas" height="44"></canvas>
+    </div>
   </div>
-  <!-- Risk -->
-  <div class="risk-wrap">
-    <div class="kv-row"><span class="kv-lbl">Risk Level</span><span class="kv-val y" id="risk-val">—</span></div>
-    <div class="track"><div class="fill-risk" id="risk-fill" style="width:60%"></div></div>
+  <!-- Card 2: Risk & Drawdown (regime lives here) -->
+  <div class="card">
+    <!-- Risk -->
+    <div class="risk-wrap">
+      <div class="kv-row"><span class="kv-lbl">Risk Level</span><span class="kv-val y" id="risk-val">—</span></div>
+      <div class="track"><div class="fill-risk" id="risk-fill" style="width:60%"></div></div>
+    </div>
+    <!-- Drawdown -->
+    <div class="dd-wrap">
+      <div class="kv-row"><span class="kv-lbl">Daily Drawdown</span><span class="kv-val" id="dd-val">—</span></div>
+      <div class="kv-row" style="margin-bottom:3px;"><span class="kv-lbl">Max Limit</span><span class="kv-val" id="dd-max">—</span></div>
+      <div class="track"><div class="fill-dd" id="dd-fill" style="width:3%"></div></div>
+    </div>
+    <!-- Regime bar -->
+    <div class="reg-bar">
+      <div class="reg-seg reg-bull" id="r-bull">BULL</div>
+      <div class="reg-seg reg-pull" id="r-pull">PULL</div>
+      <div class="reg-seg reg-range" id="r-range">RANGE</div>
+      <div class="reg-seg reg-bear" id="r-bear">BEAR</div>
+      <div class="reg-seg reg-side" id="r-side">SIDE</div>
+    </div>
   </div>
-  <!-- Drawdown -->
-  <div class="dd-wrap">
-    <div class="kv-row"><span class="kv-lbl">Daily Drawdown</span><span class="kv-val" id="dd-val">—</span></div>
-    <div class="kv-row" style="margin-bottom:3px;"><span class="kv-lbl">Max Limit</span><span class="kv-val" id="dd-max">—</span></div>
-    <div class="track"><div class="fill-dd" id="dd-fill" style="width:3%"></div></div>
+  <!-- Card 3: Economic Calendar -->
+  <div class="card">
+    <div class="sec-title">Economic Calendar <span class="cnt" id="cal-cnt">0</span></div>
+    <div id="cal-list" style="overflow-y:auto;max-height:160px;flex-shrink:0;"></div>
   </div>
-  <!-- Regime bar -->
-  <div class="reg-bar">
-    <div class="reg-seg reg-bull" id="r-bull">BULL</div>
-    <div class="reg-seg reg-pull" id="r-pull">PULL</div>
-    <div class="reg-seg reg-range" id="r-range">RANGE</div>
-    <div class="reg-seg reg-bear" id="r-bear">BEAR</div>
-    <div class="reg-seg reg-side" id="r-side">SIDE</div>
-  </div>
-  <!-- Economic Calendar -->
-  <div class="sec-title">Economic Calendar <span class="cnt" id="cal-cnt">0</span></div>
-  <div id="cal-list" style="overflow-y:auto;max-height:160px;flex-shrink:0;"></div>
-  <!-- Agents -->
-  <div class="sec-title" style="margin-top:auto;" id="agents-title">Agents</div>
-  <div style="overflow-y:auto;">
-    <div class="agent-row">
-      <div class="ag-ic" style="background:rgba(255,193,7,.1)">👑</div>
-      <div style="flex:1;min-width:0"><div class="ag-name">DIRECTOR — Macro</div><div class="ag-sub" id="ag0-sub">—</div></div>
-      <span class="badge" id="ag0-badge">—</span>
-    </div>
-    <div class="agent-row">
-      <div class="ag-ic" style="background:rgba(0,153,255,.1)">🧠</div>
-      <div style="flex:1;min-width:0"><div class="ag-name">ANALYST — Entry AI</div><div class="ag-sub" id="ag2-sub">—</div></div>
-      <span class="badge" id="ag2-badge">—</span>
-    </div>
-    <div class="agent-row">
-      <div class="ag-ic" style="background:rgba(0,212,170,.1)">🔭</div>
-      <div style="flex:1;min-width:0"><div class="ag-name">SCOUT — Momentum</div><div class="ag-sub" id="scout-sub">MACD · EMA20/50 · +0/+1/+2</div></div>
-      <span class="badge bon">ON</span>
-    </div>
-    <div class="agent-row">
-      <div class="ag-ic" style="background:rgba(0,212,170,.1)">🛡️</div>
-      <div style="flex:1;min-width:0"><div class="ag-name">GUARDIAN — Risk Gate</div><div class="ag-sub">9 Gates: A–D Core · E BTC·Hr · F XAU·Hr · G XAU·Dir · H Score · I H4</div></div>
-      <span class="badge bon">ON</span>
-    </div>
-    <div class="agent-row">
-      <div class="ag-ic" style="background:rgba(255,107,53,.1)">🔌</div>
-      <div style="flex:1;min-width:0"><div class="ag-name">SENTINEL — MT5 Watchdog</div><div class="ag-sub" id="mt5-sub">—</div></div>
-      <span class="badge" id="mt5-badge">—</span>
-    </div>
-    <div class="agent-row">
-      <div class="ag-ic" style="background:rgba(168,85,247,.1)">⏰</div>
-      <div style="flex:1;min-width:0"><div class="ag-name">Scan Loop</div><div class="ag-sub" id="loop-sub">—</div></div>
-      <span class="badge" id="loop-badge">—</span>
+  <!-- Card 4: Agents -->
+  <div class="card">
+    <div class="sec-title" style="margin-top:auto;" id="agents-title">Agents</div>
+    <div style="overflow-y:auto;">
+      <div class="agent-row">
+        <div class="ag-ic" style="background:rgba(255,193,7,.1)">👑</div>
+        <div style="flex:1;min-width:0"><div class="ag-name">DIRECTOR — Macro</div><div class="ag-sub" id="ag0-sub">—</div></div>
+        <span class="badge" id="ag0-badge">—</span>
+      </div>
+      <div class="agent-row">
+        <div class="ag-ic" style="background:rgba(0,153,255,.1)">🧠</div>
+        <div style="flex:1;min-width:0"><div class="ag-name">ANALYST — Entry AI</div><div class="ag-sub" id="ag2-sub">—</div></div>
+        <span class="badge" id="ag2-badge">—</span>
+      </div>
+      <div class="agent-row">
+        <div class="ag-ic" style="background:rgba(0,212,170,.1)">🔭</div>
+        <div style="flex:1;min-width:0"><div class="ag-name">SCOUT — Momentum</div><div class="ag-sub" id="scout-sub">MACD · EMA20/50 · +0/+1/+2</div></div>
+        <span class="badge bon">ON</span>
+      </div>
+      <div class="agent-row">
+        <div class="ag-ic" style="background:rgba(0,212,170,.1)">🛡️</div>
+        <div style="flex:1;min-width:0"><div class="ag-name">GUARDIAN — Risk Gate</div><div class="ag-sub">9 Gates: A–D Core · E BTC·Hr · F XAU·Hr · G XAU·Dir · H Score · I H4</div></div>
+        <span class="badge bon">ON</span>
+      </div>
+      <div class="agent-row">
+        <div class="ag-ic" style="background:rgba(255,107,53,.1)">🔌</div>
+        <div style="flex:1;min-width:0"><div class="ag-name">SENTINEL — MT5 Watchdog</div><div class="ag-sub" id="mt5-sub">—</div></div>
+        <span class="badge" id="mt5-badge">—</span>
+      </div>
+      <div class="agent-row">
+        <div class="ag-ic" style="background:rgba(168,85,247,.1)">⏰</div>
+        <div style="flex:1;min-width:0"><div class="ag-name">Scan Loop</div><div class="ag-sub" id="loop-sub">—</div></div>
+        <span class="badge" id="loop-badge">—</span>
+      </div>
     </div>
   </div>
 </div>
@@ -429,7 +447,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
     <div class="sc"><span class="lbl">Float P&L</span><span class="val" id="s-float">—</span><span class="sub" id="s-open">— positions</span></div>
     <div class="sc"><span class="lbl">Win Rate</span><span class="val" id="s-winrate">—</span><span class="sub" id="s-winrate-sub">W: — / L: —</span></div>
     <div class="sc"><span class="lbl">Total Trades</span><span class="val b" id="s-total-trades">—</span><span class="sub" id="s-total-sub">— closed</span></div>
-    <div class="sc"><span class="lbl">Risk / MaxDD</span><span class="val y" id="s-risk">—</span><span class="sub">MaxDD: <span id="s-maxdd">—</span></span></div>
+    <div class="sc"><span class="lbl">Drawdown</span><span class="val r2" id="s-maxdd">—</span><span class="sub">now / max</span></div>
   </div>
   <!-- Heartbeat -->
   <div class="hb-bar">
@@ -600,23 +618,18 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
     </div>
 
   </div>
+  <!-- Trading Floor placeholder (sub-project #2 will render here) -->
+  <div class="panel floor-placeholder" style="flex:1;min-height:150px;margin:9px">
+    <div class="ph"><div class="ph-title"><div class="pdot g"></div>Trading Floor</div><span style="font-size:9px;color:var(--text3)">live agents</span></div>
+    <div class="pb" style="padding:6px 8px"><canvas id="pixelAgents" style="width:100%;display:block;image-rendering:pixelated"></canvas></div>
+  </div>
 </div>
 
 <!-- RIGHT SIDEBAR -->
 <div class="rsidebar">
-  <div class="sec-title">Symbols</div>
-  <div class="sym-cards" id="sym-cards"></div>
   <!-- Macro -->
   <div class="sec-title">Macro Data</div>
   <div id="macro-list"></div>
-  <!-- Trading Floor -->
-  <div class="sec-title" style="display:flex;align-items:center;gap:6px">
-    <span style="width:6px;height:6px;border-radius:50%;background:#00e676;display:inline-block;animation:pulse 1.5s infinite"></span>
-    Trading Floor
-  </div>
-  <div style="padding:4px 6px;background:#0a0e0b;border-bottom:1px solid var(--border)">
-    <canvas id="pixelAgents" style="width:100%;display:block;image-rendering:pixelated"></canvas>
-  </div>
   <!-- Top Gainers -->
   <div class="sec-title">Top Gainers <span class="cnt">24h</span></div>
   <div id="gainers-list" style="overflow-y:auto;max-height:150px;"></div>
@@ -846,25 +859,7 @@ function renderLogs(logs){
 
 function renderSymbols(symbols){
   if(!symbols) return;
-  // Right sidebar symbol cards (big)
-  $('sym-cards').innerHTML = Object.entries(symbols).map(([sym,d])=>{
-    const dir = d.allowed_dir||'BOTH';
-    const dirColor = dir==='BUY_ONLY'?'var(--green)':dir==='SELL_ONLY'?'var(--red)':'var(--yellow)';
-    const rsiColor = d.rsi<30?'var(--green)':d.rsi>70?'var(--red)':'var(--yellow)';
-    const mkt = d.market_status||'—';
-    const mktColor = mkt==='OPEN'?'var(--green)':mkt==='CLOSED'?'var(--red)':'#666';
-    const mktBg   = mkt==='OPEN'?'rgba(0,230,118,.12)':mkt==='CLOSED'?'rgba(255,61,87,.12)':'rgba(255,255,255,.06)';
-    return `<div class="sym-c">
-      <div class="sym-top"><span class="sym-name">${sym}</span>
-        <span class="stag" style="background:${mktBg};color:${mktColor};border:1px solid ${mktColor}40;font-size:8px">● ${mkt}</span>
-        <span class="stag" style="background:${dir==='BUY_ONLY'?'rgba(0,230,118,.12)':dir==='SELL_ONLY'?'rgba(255,61,87,.12)':'rgba(255,193,7,.12)'};color:${dirColor};border:1px solid ${dirColor}40;font-size:8px">${dir}</span></div>
-      <div class="sym-kv" style="margin-bottom:2px"><span class="sym-k">Price</span><span class="sym-v">${fmt(d.price,2)}</span></div>
-      <div class="sym-kv" style="margin-bottom:2px"><span class="sym-k">RSI</span><span class="sym-v" style="color:${rsiColor}">${fmt(d.rsi,1)}</span></div>
-      <div class="sym-kv"><span class="sym-k">Spread</span><span class="sym-v">${fmt(d.spread,0)}pts</span></div>
-    </div>`;
-  }).join('');
-
-  // Panel 4: Macro/Trend view (distinct from right sidebar market view)
+  // Panel 4: Macro/Trend view (center Symbol Monitor)
   $('sym-cards-inner').innerHTML = Object.entries(symbols).map(([sym,sv])=>{
     const dir = sv.allowed_dir||'BOTH';
     const dirCol = dir==='BUY_ONLY'?'var(--green)':dir==='SELL_ONLY'?'var(--red)':'var(--yellow)';
@@ -932,44 +927,16 @@ async function fetchAndRender(){
     const perf = await perfRes.json();
     lastData = d;
 
-    // ── Connection indicator ──
-    const dot = $('conn-dot');
-    dot.classList.toggle('online', !!d.state);
-
     // ── Topbar ──
     const balance = d.balance||0, equity = d.equity||0, floatPl = d.float_pl||0;
     const ddPct = d.drawdown_pct||0;
-    $('tb-balance').textContent = fmtUSD(balance);
-    $('tb-balance').className = 'val';
-    $('tb-equity').textContent = fmtUSD(equity);
-    $('tb-equity').className = 'val';
-    $('tb-float').textContent = fmtSign(floatPl);
-    $('tb-float').className = `val ${colorClass(floatPl)}`;
-    $('tb-dd').textContent = `-${fmt(ddPct,2)}%`;
-    $('tb-dd').className = `val ${ddPct>5?'r2':ddPct>2?'y':'g'}`;
-    $('tb-open').textContent = d.open_count||0;
     $('tb-scan').textContent = `#${d.scan_count||0}`;
     updateRegimeBar(d.state||'');
-    // Regime pills: per-symbol regime in topbar
-    const pillsWrap = $('regime-pills-wrap');
-    if(pillsWrap && d.symbols) {
-      pillsWrap.innerHTML = Object.entries(d.symbols).map(([sym,sv]) => {
-        const r = (sv.regime||'N/A').replace('TRENDING_UP','UP').replace('TRENDING_DOWN','DOWN').replace('RANGING','RANGE').replace('SIDEWAY','SIDE');
-        const col = r.includes('UP')||r.includes('BULL') ? 'var(--green)' : r.includes('DOWN')||r.includes('BEAR') ? 'var(--red)' : 'var(--yellow)';
-        const bg  = r.includes('UP')||r.includes('BULL') ? 'rgba(0,230,118,.12)' : r.includes('DOWN')||r.includes('BEAR') ? 'rgba(255,61,87,.12)' : 'rgba(255,193,7,.12)';
-        return `<span style="background:${bg};color:${col};border:1px solid ${col}40;padding:2px 8px;border-radius:3px;font-family:var(--font-mono);font-size:10px;font-weight:700;white-space:nowrap">${sym.replace('USDm','')}: ${r}</span>`;
-      }).join('');
-    }
-    // Today P&L from tb-today topbar element
     const todayStr = new Date().toISOString().slice(0,10);
     const todayTrades = (d.recent_trades||[]).filter(t => (t.exit_time||'').startsWith(todayStr));
     const todayPnl = todayTrades.reduce((s,t) => s+(t.net_profit||0), 0);
     const todayW = todayTrades.filter(t => (t.net_profit||0)>0).length;
     const todayL = todayTrades.filter(t => (t.net_profit||0)<=0).length;
-    if($('tb-today')) {
-      $('tb-today').textContent = todayTrades.length ? fmtSign(todayPnl) : '—';
-      $('tb-today').className = `val ${colorClass(todayPnl)}`;
-    }
 
     // ── Sidebar equity ──
     $('eq-val').textContent = fmtUSD(equity);
@@ -997,7 +964,6 @@ async function fetchAndRender(){
     $('s-float').textContent = fmtSign(floatPl);
     $('s-float').className = `val ${colorClass(floatPl)}`;
     $('s-open').textContent = `${d.open_count||0} positions`;
-    $('s-risk').textContent = `${risk}/5`;
     $('s-maxdd').textContent = `-${fmt(ddPct,2)}% / ${maxDD}%`;
 
     // ── Total trades + win rate from performance data ──
@@ -1011,11 +977,6 @@ async function fetchAndRender(){
     $('s-winrate').textContent = totalTrades > 0 ? `${fmt(overallWR,1)}%` : '—';
     $('s-winrate').className = `val ${overallWR >= 50 ? 'g' : overallWR >= 40 ? 'y' : 'r2'}`;
     $('s-winrate-sub').textContent = `W: ${totalWins} / L: ${totalLosses}`;
-
-    // topbar totals (must come after calculation above)
-    $('tb-total').textContent = totalTrades || '—';
-    $('tb-wr').textContent = totalTrades > 0 ? `${fmt(overallWR,1)}%` : '—';
-    $('tb-wr').className = `val ${overallWR>=50?'g':overallWR>=40?'y':'r2'}`;
 
     // ── Heartbeat bar ──
     const dirRefresh = d.director_last_refresh_mins != null ? `${d.director_last_refresh_mins}m ago` : '—';
@@ -1055,8 +1016,6 @@ async function fetchAndRender(){
     // ── AI status ──
     const aiOnline = d.ai_online === true;
     const aiErrCode = d.ai_error_code || '';
-    $('tb-ai').textContent = aiOnline ? 'Online' : (aiErrCode ? `Err ${aiErrCode}` : 'Offline');
-    $('tb-ai').className = `val ${aiOnline ? 'g' : 'r2'}`;
 
     // ── Agents ──
     const mt5Disc = d.mt5_disconnects||0;
@@ -1081,7 +1040,7 @@ async function fetchAndRender(){
     $('losers-list').innerHTML = `<div class="empty">Requires exchange feed</div>`;
 
   } catch(err) {
-    $('conn-dot').classList.remove('online');
+    // connection state shown via control-bar pills (updateCtrlBar)
     $('hb-txt').innerHTML = `⚠️ <span style="color:var(--red)">Cannot reach API — is web_app.py running?</span>`;
     console.warn('Fetch error:', err);
   }
