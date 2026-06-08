@@ -74,3 +74,17 @@ def test_symbol_info_csv_constants():
 def test_symbol_info_csv_unknown_raises():
     with pytest.raises(RuntimeError, match="No baked symbol info"):
         backtest.load_symbol_info("EURUSDm", source="csv")
+
+
+def test_parse_args_data_source_default_mt5():
+    sys.argv = ["backtest.py"]
+    args = backtest.parse_args()
+    assert args.data_source == "mt5"
+    assert args.data_dir == "data/history"
+
+
+def test_parse_args_data_source_csv():
+    sys.argv = ["backtest.py", "--data-source", "csv", "--data-dir", "x/y"]
+    args = backtest.parse_args()
+    assert args.data_source == "csv"
+    assert args.data_dir == "x/y"

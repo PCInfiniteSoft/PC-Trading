@@ -399,6 +399,10 @@ def parse_args():
                          "s3a_st3:live s3a strategy + st3 trend-sell SELL path  "
                          "s3a_st3t:s3a_st3 with 12-bar trend-sell throttle (anti-cluster)  "
                          "s3a_st3q:s3a_st3 with EMA-alignment quality confirm on trend-sell  "))
+    p.add_argument("--data-source", choices=["mt5", "csv"], default="mt5",
+                   help="Candle source: live MT5 (default) or pre-fetched CSVs")
+    p.add_argument("--data-dir", type=str, default="data/history", metavar="DIR",
+                   help="Directory of {symbol}_{TF}.csv files for --data-source csv")
     return p.parse_args()
 
 
@@ -411,7 +415,8 @@ def init_mt5() -> bool:
 
 def main():
     args = parse_args()
-    if not init_mt5():
+    use_mt5 = args.data_source == "mt5"
+    if use_mt5 and not init_mt5():
         sys.exit(1)
     try:
         trades = run_backtest(args)
@@ -419,7 +424,8 @@ def main():
         if args.export:
             export_csv(trades, args.export)
     finally:
-        mt5.shutdown()
+        if use_mt5:
+            mt5.shutdown()
 
 
 # ── Integration constants ─────────────────────────────────────────
@@ -473,11 +479,15 @@ def run_backtest(args) -> list:
         cache    = getattr(args, "_cached_data", None)
         if cache and symbol in cache:
             data     = cache[symbol]
-            sym_info = cache[symbol].get("_info") or load_symbol_info(symbol)
+            sym_info = cache[symbol].get("_info") or load_symbol_info(symbol, source=args.data_source)
         else:
-            print(f"[INFO] Loading data for {symbol} ...")
-            data     = load_data(symbol, args.months)
-            sym_info = load_symbol_info(symbol)
+            print(f"[INFO] Loading data for {symbol} ({args.data_source}) ...")
+            if args.data_source == "csv":
+                data     = load_data_csv(symbol, args.data_dir, args.months)
+                sym_info = load_symbol_info(symbol, source="csv")
+            else:
+                data     = load_data(symbol, args.months)
+                sym_info = load_symbol_info(symbol, source="mt5")
         m5_df        = data["M5"]
         m15_df       = data["M15"]
         h1_df        = data["H1"]
