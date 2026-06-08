@@ -493,6 +493,16 @@ def run_backtest(args) -> list:
         h1_df        = data["H1"]
         h4_df        = data["H4"]
         d1_df        = data["D1"]
+
+        # ── O(1) forward pointers for higher-TF frames ───────────────────────
+        # Precompute time arrays once; advance a pointer per frame so each
+        # `df[df["time"] <= bar_time].tail(K)` becomes O(1) instead of O(n).
+        m15_times = m15_df["time"].values
+        h1_times  = h1_df["time"].values
+        h4_times  = h4_df["time"].values
+        d1_times  = d1_df["time"].values
+        p_m15 = p_h1 = p_h4 = p_d1 = -1
+
         point        = sym_info["point"]
         tick_value   = sym_info["tick_value"]
         lot          = args.lot
@@ -553,6 +563,16 @@ def run_backtest(args) -> list:
         for i in range(WARMUP_BARS, len(m5_df)):
             bar_time = m5_df.iloc[i]["time"]
 
+            # Advance higher-TF pointers (monotonic bar_time -> O(total rows))
+            while p_m15 + 1 < len(m15_times) and m15_times[p_m15 + 1] <= bar_time:
+                p_m15 += 1
+            while p_h1 + 1 < len(h1_times) and h1_times[p_h1 + 1] <= bar_time:
+                p_h1 += 1
+            while p_h4 + 1 < len(h4_times) and h4_times[p_h4 + 1] <= bar_time:
+                p_h4 += 1
+            while p_d1 + 1 < len(d1_times) and d1_times[p_d1 + 1] <= bar_time:
+                p_d1 += 1
+
             # 1. Session filter — skip closed-market bars (XAU only)
             if not _is_safe_bar_time(bar_time, symbol):
                 continue
@@ -597,16 +617,16 @@ def run_backtest(args) -> list:
 
             # 3. DIRECTOR refresh every 48 bars
             if i - director_state["last_refresh_bar"] >= DIRECTOR_REFRESH_BARS:
-                h4_slice = h4_df[h4_df["time"] <= bar_time].tail(50)
-                d1_slice = d1_df[d1_df["time"] <= bar_time].tail(50)
+                h4_slice = h4_df.iloc[max(0, p_h4 + 1 - 50): p_h4 + 1]
+                d1_slice = d1_df.iloc[max(0, p_d1 + 1 - 50): p_d1 + 1]
                 if len(h4_slice) >= 22 and len(d1_slice) >= 22:
                     director_state.update(compute_director(h4_slice, d1_slice))
                 director_state["last_refresh_bar"] = i
 
             # 4. ANALYST — one direction per bar, chosen by RSI vs 50 (mirrors production)
             m5_slice  = m5_df.iloc[max(0, i - 99): i + 1]
-            m15_slice = m15_df[m15_df["time"] <= bar_time].tail(100)
-            h1_slice  = h1_df[h1_df["time"]  <= bar_time].tail(100)
+            m15_slice = m15_df.iloc[max(0, p_m15 + 1 - 100): p_m15 + 1]
+            h1_slice  = h1_df.iloc[max(0, p_h1 + 1 - 100): p_h1 + 1]
 
             # 4-TS. Trend-following SELL path (st1/st2/st3): a second SELL entry that
             # fires on a momentum/breakdown trigger, gated on a confirmed D1 DOWNTREND.
