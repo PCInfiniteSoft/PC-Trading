@@ -27,6 +27,15 @@ TF_MAP = {
 }
 
 
+def _filter_trailing_months(df, months):
+    """Keep only rows within the last `months` months of the file's last bar.
+    months == 0 → return df unchanged (full history). Works offline (no 'now')."""
+    if months <= 0 or df.empty:
+        return df
+    cutoff = df["time"].max() - pd.Timedelta(days=months * 31)
+    return df[df["time"] >= cutoff].reset_index(drop=True)
+
+
 def load_data(symbol: str, months: int) -> dict:
     """Fetch OHLCV candles for all needed timeframes. Returns {tf_name: DataFrame}."""
     end   = datetime.now()
