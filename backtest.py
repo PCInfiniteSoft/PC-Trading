@@ -494,6 +494,17 @@ def run_backtest(args) -> list:
         h4_df        = data["H4"]
         d1_df        = data["D1"]
 
+        # Precompute ATR/Chandelier columns once per full TF frame. Each per-bar
+        # trailing-window slice then inherits them and the idempotent
+        # _calc_atr_chandelier short-circuits instead of re-running TR/rolling on
+        # an overlapping copy every bar (was the dominant per-bar cost). Returns a
+        # copy, so the cached source frames in `data` stay column-free and exact.
+        m5_df  = _calc_atr_chandelier(m5_df)
+        m15_df = _calc_atr_chandelier(m15_df)
+        h1_df  = _calc_atr_chandelier(h1_df)
+        h4_df  = _calc_atr_chandelier(h4_df)
+        d1_df  = _calc_atr_chandelier(d1_df)
+
         # ── O(1) forward pointers for higher-TF frames ───────────────────────
         # Precompute time arrays once; advance a pointer per frame so each
         # `df[df["time"] <= bar_time].tail(K)` becomes O(1) instead of O(n).

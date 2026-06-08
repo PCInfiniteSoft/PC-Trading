@@ -6,7 +6,20 @@ import pandas as pd
 # ══════════════════════════════════════════════════════════════════
 
 def _calc_atr_chandelier(df, atr_period=14, chandelier_period=22, multiplier=3):
-    """Shared ATR + Chandelier Exit — avoids duplicating this everywhere."""
+    """Shared ATR + Chandelier Exit — avoids duplicating this everywhere.
+
+    Idempotent fast-path: when the frame already carries precomputed atr/
+    long_stop/short_stop columns (and default params are in effect), return it
+    unchanged instead of recomputing. The backtest precomputes these once per
+    full TF frame so every trailing-window slice inherits them, eliminating the
+    O(n*window) per-bar recompute. Because TR/ATR/Chandelier are causal rolling
+    ops, the full-column value at index i is byte-identical to recomputing on a
+    slice that ends at i (given >= chandelier_period warmup) — which holds for
+    every `.iloc[-1]` read and the SMC order-block tail scan. Only the unwarmed
+    first rows of a slice would differ, and those are never read."""
+    if (atr_period == 14 and chandelier_period == 22 and multiplier == 3
+            and {"atr", "long_stop", "short_stop"}.issubset(df.columns)):
+        return df
     df = df.copy()
     df['tr0'] = abs(df['high'] - df['low'])
     df['tr1'] = abs(df['high'] - df['close'].shift())
