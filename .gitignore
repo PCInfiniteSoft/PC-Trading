@@ -161,6 +161,8 @@ activemq-data/
 
 # Environments
 .env
+*.env
+webhook.env
 .envrc
 .venv
 env/
