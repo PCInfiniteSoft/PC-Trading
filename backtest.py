@@ -2,6 +2,7 @@
 """PC Trading — Backtest (Approach A: bar-by-bar simulation)."""
 import argparse
 import csv
+import os
 import statistics
 import sys
 from datetime import date, datetime, timedelta
@@ -48,6 +49,25 @@ def load_data(symbol: str, months: int) -> dict:
         df = pd.DataFrame(rates)
         df["time"] = pd.to_datetime(df["time"], unit="s")
         result[tf_name] = df[["time", "open", "high", "low", "close", "tick_volume"]].reset_index(drop=True)
+    return result
+
+
+def load_data_csv(symbol: str, data_dir: str, months: int = 0) -> dict:
+    """Load candles for all TFs from {data_dir}/{symbol}_{TF}.csv (written by
+    fetch_history.py). Returns the same shape as load_data:
+    {tf_name: DataFrame[time, open, high, low, close, tick_volume]} with `time`
+    as datetime. `months > 0` keeps only the trailing N months of each TF."""
+    result = {}
+    for tf_name in TF_MAP:
+        path = os.path.join(data_dir, f"{symbol}_{tf_name}.csv")
+        if not os.path.exists(path):
+            raise RuntimeError(f"CSV not found: {path}")
+        df = pd.read_csv(path)
+        if df.empty:
+            raise RuntimeError(f"Empty CSV for {symbol} {tf_name}: {path}")
+        df["time"] = pd.to_datetime(df["time"], unit="s")
+        df = df[["time", "open", "high", "low", "close", "tick_volume"]].reset_index(drop=True)
+        result[tf_name] = _filter_trailing_months(df, months)
     return result
 
 
