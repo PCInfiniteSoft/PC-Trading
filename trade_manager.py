@@ -407,6 +407,8 @@ async def trading_job():
                             log.warning(f"🛑 [GUARDIAN] บล็อก! ถึงขีดจำกัด {s} BUY layers"); break
                         if agent3.is_layer_too_soon(s, "BUY"):
                             log.warning(f"🛑 [GUARDIAN-Q] บล็อก! {s} BUY layer ชิดเกิน (anti-pyramid spacing)"); break
+                        if agent3.is_slip_cooldown_active(s):
+                            log.warning(f"🛑 [GUARDIAN-S] บล็อก! {s} BUY — slip-close cooldown active"); break
                         if agent3.is_btc_dead_hour(s):
                             log.warning(f"🛑 [GUARDIAN-E] บล็อก! {s} Dead Hour (UTC 00-01)"); break
                         if agent3.is_xau_dead_hour(s, macro_data.get('bias', '')):
@@ -497,6 +499,8 @@ async def trading_job():
                             log.warning(f"🛑 [GUARDIAN] บล็อก! ถึงขีดจำกัด {s} SELL layers"); break
                         if agent3.is_layer_too_soon(s, "SELL"):
                             log.warning(f"🛑 [GUARDIAN-Q] บล็อก! {s} SELL layer ชิดเกิน (anti-pyramid spacing)"); break
+                        if agent3.is_slip_cooldown_active(s):
+                            log.warning(f"🛑 [GUARDIAN-S] บล็อก! {s} SELL — slip-close cooldown active"); break
                         if agent3.is_btc_dead_hour(s):
                             log.warning(f"🛑 [GUARDIAN-E] บล็อก! {s} Dead Hour (UTC 00-01)"); break
                         if agent3.is_xau_dead_hour(s, macro_data.get('bias', '')):
@@ -903,6 +907,14 @@ def place_order(symbol, type, price, rsi, comment, extra=None):
     if should_close:
         logging.getLogger(symbol).warning(f"🛑 [GUARDIAN-M] Slip {slippage:.0f}pts > {max_slip} — ปิดออเดอร์ทันที")
         close_one_order(symbol=symbol, reason=f"GUARDIAN-M: slip {slippage:.0f}pts", ticket=res.order)
+        # Stamp the slip-close for GUARDIAN-S cooldown so the next pyramid layer in this
+        # scan (#2) and re-entry on the next ticks (#3) are blocked — stops the churn.
+        # Server-time (tick.time) to match the gate clock; fall back to wall-clock.
+        _tk = mt5.symbol_info_tick(symbol)
+        _ts = int(_tk.time) if (_tk and _tk.time) else int(__import__("time").time())
+        if getattr(shared_state, 'SLIP_CLOSE_AT', None) is None:
+            shared_state.SLIP_CLOSE_AT = {}
+        shared_state.SLIP_CLOSE_AT[symbol] = _ts
         return False
 
     shared_state.ACTIVE_TRADE_TRACKER[res.order] = {"max_p": 0.0, "max_l": 0.0}

@@ -43,6 +43,13 @@ def _max_layers_for(symbol):
 # layer was still in profit at stack time (pyramid into winner, not average-down).
 MIN_LAYER_SPACING_MINUTES = 10
 
+# ── Cooldown after a GUARDIAN-M slip-close (churn fix #2/#3, 2026-06-06) ──────
+# A GUARDIAN-M slip-close stamps shared_state.SLIP_CLOSE_AT[symbol]; this many
+# minutes of no-entry follows, blocking BOTH the next pyramid layer in the same
+# scan (#2) and re-entry on subsequent ticks (#3). The BTC churn re-fired on every
+# slip-closed layer, bleeding spread.
+SLIP_COOLDOWN_MINUTES = 5
+
 
 class RiskManager:
     def __init__(self, db_path="trading_history.db"):
@@ -279,6 +286,44 @@ class RiskManager:
 
         except Exception as e:
             log.warning(f"⚠️ [GUARDIAN-Q] layer spacing check error: {e}")
+            return False   # fail-open
+
+    def is_slip_cooldown_active(self, symbol, cooldown_minutes=SLIP_COOLDOWN_MINUTES,
+                                now_ts=None, slip_close_at=None):
+        """[GUARDIAN-S] Block entries for `cooldown_minutes` after a GUARDIAN-M
+        slip-close. Covers both the next pyramid layer in the same scan (#2) and
+        re-entry on subsequent ticks (#3) — the 2026-06-06 churn re-fired on every
+        slip-closed layer, each paying spread.
+
+        `slip_close_at`: POSIX server-time of this symbol's last slip-close
+        (injectable; defaults to shared_state.SLIP_CLOSE_AT). `now_ts` injectable
+        (defaults to the symbol tick's server time, matching is_layer_too_soon's
+        clock so there is no local-vs-server skew). Fail-open."""
+        import logging
+        log = logging.getLogger("System")
+        try:
+            if slip_close_at is None:
+                slip_close_at = getattr(shared_state, 'SLIP_CLOSE_AT', {}).get(symbol)
+            if not slip_close_at:
+                return False
+
+            if now_ts is None:
+                tick = mt5.symbol_info_tick(symbol)
+                if not (tick and tick.time):
+                    return False   # fail-open: can't compare clocks safely
+                now_ts = int(tick.time)
+
+            elapsed_min = (now_ts - slip_close_at) / 60.0
+            if elapsed_min < cooldown_minutes:
+                self._set_blocked(f"Slip cooldown {elapsed_min:.1f}m<{cooldown_minutes}m")
+                log.warning(
+                    f"🛑 [GUARDIAN-S] Blocked {symbol} — slip-close {elapsed_min:.1f}m "
+                    f"ago (< {cooldown_minutes}m cooldown)")
+                return True
+            return False
+
+        except Exception as e:
+            log.warning(f"⚠️ [GUARDIAN-S] slip cooldown check error: {e}")
             return False   # fail-open
 
     # ══════════════════════════════════════════════════════════════
