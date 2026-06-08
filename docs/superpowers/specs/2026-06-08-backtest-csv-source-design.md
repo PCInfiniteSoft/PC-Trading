@@ -89,6 +89,16 @@ Run baseline and st3 scenarios over the full CSV range and export, e.g.
 `python backtest.py --scenario s3a --data-source csv --months 0 --export s3a_7y.csv` (exact scenario
 list resolved in the plan). Compare against the 6-month results as a sanity check on direction.
 
+## Known perf limitation (2026-06-08)
+
+The O(n²) higher-TF mask slicing was fixed (commit `1d5d3249`, pointer-based). But the dominant
+cost on full history is **per-bar indicator recompute** — `_calc_atr_chandelier`, RSI, SMC order
+block, zone score are recomputed on each M5 bar's slice (~15–140ms/bar). At 869k M5 bars (BTC 519k +
+XAU 350k) that is **several hours per scenario**, not minutes. To make 7-year runs interactive a
+second optimization is needed: precompute rolling indicators ONCE per frame (vectorised) and index
+into them per bar, instead of recomputing per bar. Until then, run full 7-year in the background
+(hours) or use a shorter `--months` window.
+
 ## Open items
 
 - Exact scenario set to run for the 7-year validation (resolved in the plan).
