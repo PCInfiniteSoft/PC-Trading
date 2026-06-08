@@ -909,12 +909,14 @@ def place_order(symbol, type, price, rsi, comment, extra=None):
         close_one_order(symbol=symbol, reason=f"GUARDIAN-M: slip {slippage:.0f}pts", ticket=res.order)
         # Stamp the slip-close for GUARDIAN-S cooldown so the next pyramid layer in this
         # scan (#2) and re-entry on the next ticks (#3) are blocked — stops the churn.
-        # Server-time (tick.time) to match the gate clock; fall back to wall-clock.
+        # MUST use MT5 server time (tick.time) to match the gate's clock. If server time
+        # is unavailable, skip stamping (fail-open) — never write a wall-clock value into
+        # a server-time comparison, which could go negative and block entries for hours.
         _tk = mt5.symbol_info_tick(symbol)
-        _ts = int(_tk.time) if (_tk and _tk.time) else int(__import__("time").time())
-        if getattr(shared_state, 'SLIP_CLOSE_AT', None) is None:
-            shared_state.SLIP_CLOSE_AT = {}
-        shared_state.SLIP_CLOSE_AT[symbol] = _ts
+        if _tk and _tk.time:
+            if getattr(shared_state, 'SLIP_CLOSE_AT', None) is None:
+                shared_state.SLIP_CLOSE_AT = {}
+            shared_state.SLIP_CLOSE_AT[symbol] = int(_tk.time)
         return False
 
     shared_state.ACTIVE_TRADE_TRACKER[res.order] = {"max_p": 0.0, "max_l": 0.0}
