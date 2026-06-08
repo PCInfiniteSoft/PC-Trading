@@ -229,3 +229,11 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 data/
+
+# Backtest artifacts (generated output)
+*.csv
+*.xlsx
+
+# Local tooling state (Claude Code / superpowers)
+.claude/
+.superpowers/
