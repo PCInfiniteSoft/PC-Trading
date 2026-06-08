@@ -62,3 +62,15 @@ def test_load_data_csv_applies_trailing_months(tmp_path):
                    ["2025-01-01 00:00", "2026-05-01 00:00", "2026-06-01 00:00"])
     data = backtest.load_data_csv("BTCUSDm", str(tmp_path), months=2)
     assert len(data["M5"]) == 2  # only the two 2026 bars survive
+
+
+def test_symbol_info_csv_constants():
+    btc = backtest.load_symbol_info("BTCUSDm", source="csv")
+    assert btc == {"point": 0.01, "tick_value": 0.01}
+    xau = backtest.load_symbol_info("XAUUSDm", source="csv")
+    assert xau == {"point": 0.001, "tick_value": 0.1}
+
+
+def test_symbol_info_csv_unknown_raises():
+    with pytest.raises(RuntimeError, match="No baked symbol info"):
+        backtest.load_symbol_info("EURUSDm", source="csv")

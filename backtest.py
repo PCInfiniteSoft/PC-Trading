@@ -71,8 +71,20 @@ def load_data_csv(symbol: str, data_dir: str, months: int = 0) -> dict:
     return result
 
 
-def load_symbol_info(symbol: str) -> dict:
-    """Return point size and tick value for a symbol."""
+SYMBOL_INFO_CONST = {
+    "BTCUSDm": {"point": 0.01,  "tick_value": 0.01},
+    "XAUUSDm": {"point": 0.001, "tick_value": 0.1},
+}
+
+def load_symbol_info(symbol: str, source: str = "mt5") -> dict:
+    """Point size + tick value. source='mt5' queries the terminal; source='csv'
+    returns the baked constant (captured from MT5 2026-06-08) so backtests run
+    with no live connection."""
+    if source == "csv":
+        info = SYMBOL_INFO_CONST.get(symbol)
+        if info is None:
+            raise RuntimeError(f"No baked symbol info for {symbol} (add to SYMBOL_INFO_CONST)")
+        return dict(info)
     info = mt5.symbol_info(symbol)
     if info is None:
         raise RuntimeError(f"Symbol info not found for {symbol}")
