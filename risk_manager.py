@@ -400,7 +400,7 @@ class RiskManager:
             if len(rows) < streak_n:
                 return False
             # Streak = the top-N exits are ALL Stop-Loss
-            if not all("Stop Loss" in (r[1] or "") for r in rows):
+            if not all("Stop Loss" in (r[1] or "") for r in rows[:streak_n]):
                 return False
             last_sl_time = datetime.strptime(rows[0][0], "%Y-%m-%d %H:%M:%S")
             elapsed_min = (now - last_sl_time).total_seconds() / 60.0

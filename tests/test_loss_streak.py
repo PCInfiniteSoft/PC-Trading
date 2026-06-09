@@ -49,3 +49,8 @@ def test_slip_close_does_not_count_and_breaks_streak():
     rows = [_row(SLIP, 5), _row(SL, 30), _row(SL, 50)]  # newest is a slip-close
     assert _rm().is_loss_streak_active("XAUUSDm", streak_n=3, cooldown_minutes=60,
                                        now=NOW, rows=rows) is False
+
+def test_exactly_at_cooldown_boundary_allows():
+    rows = [_row(SL, 60), _row(SL, 80), _row(SL, 95)]  # newest exactly 60m ago
+    assert _rm().is_loss_streak_active("XAUUSDm", streak_n=3, cooldown_minutes=60,
+                                       now=NOW, rows=rows) is False
