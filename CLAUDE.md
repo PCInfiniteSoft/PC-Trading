@@ -11,7 +11,7 @@ When deploying code changes to the server:
 
 **DO NOT SCP files directly to server.** Use git pull only. SCP causes line ending issues and bypasses version control.
 
-The bot detects `deploy.flag` at the start of each 1-min loop tick, removes it, and calls `os.execv()` to restart in-place with the new code.
+The bot detects `deploy.flag` at the start of each main loop tick, removes it, and calls `os.execv()` to restart in-place with the new code. Detection is gear-dependent: on the **5m gear** the next tick can be up to ~5 min away, so the flag may sit for several minutes before the restart fires (observed 2026-06-09 — not a failure, just the gear interval). Confirm a deploy by checking the flag is consumed and the log shows `[DEPLOY] deploy.flag detected — restarting`, not by expecting a sub-1-min restart.
 
 ## Server
 

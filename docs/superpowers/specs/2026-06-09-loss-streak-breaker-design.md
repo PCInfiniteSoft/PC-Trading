@@ -1,7 +1,7 @@
 # Loss-Streak Circuit Breaker (GUARDIAN-R) — Design Spec
 
 **Date:** 2026-06-09
-**Status:** Approved (brainstorm) — pending implementation plan
+**Status:** ✅ Implemented + deployed live 2026-06-09 (server HEAD `8e6a009b`, GUARDIAN-R ON by default). See Progress section at end.
 **Motivation:** 2026-06-08 evening bleed — 6 consecutive XAUUSDm SELL Stop-Loss hits
 (19:05→22:27), ≈ −$80, gave back the afternoon's gains. Balance $146 → $121.75.
 Existing guards did not catch it: `is_cooldown_active` (5-min single-SL cooldown) expired
@@ -161,3 +161,30 @@ This validates the design against reality and surfaces any `%Stop Loss%` matchin
   real-data replay check above. Conservative by design; bias is toward not trading.
 - **Fail-open** means a DB problem silently disables the guard — acceptable (matches every other
   GUARDIAN gate; never block live trading on infrastructure error).
+
+## Progress (2026-06-09)
+
+**Status: DONE — implemented, tested, deployed live.** Plan: `docs/superpowers/plans/2026-06-09-loss-streak-breaker.md`.
+
+Done:
+- ✅ Task 1 — config constants (`LOSS_STREAK_BREAKER_ENABLED`/`_N`/`_COOLDOWN_MIN`) in `bot_config.py`.
+- ✅ Task 2 — `RiskManager.is_loss_streak_active` pure decision + unit tests.
+- ✅ Task 3 — `_recent_exits` DB query + integration tests.
+- ✅ Task 4 — wired into BUY + SELL pre-flight in `trade_manager.py` (after GUARDIAN-S, `break`-based).
+- ✅ Task 5 — real-data replay (embedded live XAU rows): breaker arms at the 3rd consecutive SL of the
+  2026-06-08 evening streak (19:25 → blocks 19:35), silent on mixed TP/SL days. 11 blocks total, all
+  genuine 3-in-a-row SL/SLR windows, no false fire.
+- ✅ Hardening (beyond plan) — per-symbol isolation, `streak_n` threshold, window-edge, NULL exit_reason.
+- ✅ Same-second tie fix — `_recent_exits` `ORDER BY exit_time DESC, ticket DESC`. `exit_time` is
+  second-resolution; same-second TP+SL pairs on one symbol exist in live data (e.g. 2026-05-26 14:33:25)
+  and could flip the streak decision at the LIMIT-N boundary without a deterministic tiebreak. Test fails
+  without the fix.
+- ✅ Deployed: merged to `main` (ff), pushed, server `git pull` → HEAD `8e6a009b`, `deploy.flag` consumed,
+  bot restarted 14:27 (`Strategy Ready`, Gear 5m). GUARDIAN-R live, ON by default (N=3, cooldown=60m).
+
+Test count: 19 dedicated (`tests/test_loss_streak.py`), full suite 147 green.
+
+Pending / deferred:
+- ⬜ **Port GUARDIAN-R to `backtest.py`** for live/backtest parity (live-only; tracked in the SP-C
+  live-gate backlog in `2026-06-07-strategy-separation-design.md`).
+- ⬜ **Live monitoring** — watch for `🛑 [GUARDIAN-R]` fires, especially under XAU `SELL_ONLY` regimes.
