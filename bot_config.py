@@ -31,6 +31,14 @@ DAILY_LOSS_LIMIT = float(conf.get("DAILY_LOSS_LIMIT", 100.0))
 REPORT_CHANNEL_ID = int(conf.get("REPORT_CHANNEL_ID", 0))
 WEBHOOK_URL = conf.get("WEBHOOK_URL", "")
 
+# [Gate R] Loss-streak circuit breaker — block a symbol's NEW entries after
+# LOSS_STREAK_N consecutive Stop-Loss exits, for LOSS_STREAK_COOLDOWN_MIN minutes,
+# then auto re-arm. Motivated by 2026-06-08 (6 consecutive XAU SELL SL, -$80).
+# Tunable in settings.txt. Active by default; purely protective (only blocks entries).
+LOSS_STREAK_BREAKER_ENABLED = conf.get("LOSS_STREAK_BREAKER_ENABLED", "True").strip().lower() in ("1", "true", "yes", "on")
+LOSS_STREAK_N               = int(conf.get("LOSS_STREAK_N", 3))
+LOSS_STREAK_COOLDOWN_MIN    = int(conf.get("LOSS_STREAK_COOLDOWN_MIN", 60))
+
 # ══════════════════════════════════════════════════════════════════
 #  Per-symbol configuration
 #  แยก parameter ออกเป็นรายคู่เงิน เพราะ BTC และ XAU มี behavior ต่างกันมาก
