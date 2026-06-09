@@ -375,6 +375,23 @@ class RiskManager:
             log.warning(f"⚠️ [GUARDIAN-S] slip cooldown check error: {e}")
             return False   # fail-open
 
+    def _recent_exits(self, symbol, n):
+        """Return the most-recent `n` CLOSED trades for `symbol` as newest-first
+        (exit_time, exit_reason) tuples. Open positions (exit_time NULL) excluded."""
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT exit_time, exit_reason
+                FROM trade_history
+                WHERE symbol = ? AND exit_time IS NOT NULL
+                ORDER BY exit_time DESC
+                LIMIT ?
+            """, (symbol, n))
+            return cur.fetchall()
+        finally:
+            conn.close()
+
     def is_loss_streak_active(self, symbol, streak_n=LOSS_STREAK_N,
                               cooldown_minutes=LOSS_STREAK_COOLDOWN_MIN,
                               enabled=True, now=None, rows=None):
