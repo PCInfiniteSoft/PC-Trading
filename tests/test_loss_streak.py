@@ -119,3 +119,77 @@ def test_db_error_fails_open(tmp_path):
     # Bad path → sqlite error inside _recent_exits → fail-open False
     assert rm.is_loss_streak_active("XAUUSDm", streak_n=3, cooldown_minutes=60,
                                     now=datetime(2026, 6, 8, 20, 0, 0)) is False
+
+
+# ── Hardening: per-symbol scope, streak_n threshold, window-edge, NULL reason ──
+
+def test_per_symbol_isolation(tmp_path):
+    """A 3-SL streak on BTC must NOT block XAU (query filters symbol=?)."""
+    db = str(tmp_path / "t.db")
+    _seed_db(db, [
+        ("BTCUSDm", "2026-06-08 19:05:00", SL, -5.0),    # BTC has its own 3-SL streak
+        ("BTCUSDm", "2026-06-08 19:15:00", SL, -5.0),
+        ("BTCUSDm", "2026-06-08 19:25:00", SL, -5.0),
+        ("XAUUSDm", "2026-06-08 19:05:00", TP, +10.0),   # XAU all wins — no streak
+        ("XAUUSDm", "2026-06-08 19:15:00", TP, +10.0),
+        ("XAUUSDm", "2026-06-08 19:25:00", TP, +10.0),
+    ])
+    rm = RiskManager(db_path=db)
+    now = datetime(2026, 6, 8, 19, 30, 0)
+    assert rm.is_loss_streak_active("BTCUSDm", streak_n=3, cooldown_minutes=60, now=now) is True
+    assert rm.is_loss_streak_active("XAUUSDm", streak_n=3, cooldown_minutes=60, now=now) is False
+
+
+def test_streak_n_param_drives_threshold():
+    """The same 2-SL window blocks at streak_n=2 but allows at streak_n=3."""
+    rows = [_row(SL, 5), _row(SL, 30)]
+    rm = _rm()
+    assert rm.is_loss_streak_active("XAUUSDm", streak_n=2, cooldown_minutes=60,
+                                    now=NOW, rows=rows) is True
+    assert rm.is_loss_streak_active("XAUUSDm", streak_n=3, cooldown_minutes=60,
+                                    now=NOW, rows=rows) is False
+
+
+def test_streak_n_one_blocks_single_sl():
+    """streak_n=1 → a single SL trips; a single TP does not."""
+    rm = _rm()
+    assert rm.is_loss_streak_active("XAUUSDm", streak_n=1, cooldown_minutes=60,
+                                    now=NOW, rows=[_row(SL, 5)]) is True
+    assert rm.is_loss_streak_active("XAUUSDm", streak_n=1, cooldown_minutes=60,
+                                    now=NOW, rows=[_row(TP, 5)]) is False
+
+
+def test_tp_beyond_window_ignored():
+    """A TP older than the top-N window does not break the streak (rows[:streak_n])."""
+    rows = [_row(SL, 5), _row(SL, 20), _row(SL, 40), _row(TP, 55)]  # TP is the 4th row
+    assert _rm().is_loss_streak_active("XAUUSDm", streak_n=3, cooldown_minutes=60,
+                                       now=NOW, rows=rows) is True
+
+
+def test_same_second_tp_in_window_breaks_streak(tmp_path):
+    """A win sharing the exact exit_time of an SL still counts as a win when both fall
+    inside the LIMIT-N window (deterministic: all N rows are fetched and checked)."""
+    db = str(tmp_path / "t.db")
+    _seed_db(db, [
+        ("XAUUSDm", "2026-06-08 19:05:00", SL, -12.0),
+        ("XAUUSDm", "2026-06-08 19:25:00", SL, -12.0),
+        ("XAUUSDm", "2026-06-08 19:25:00", TP, +13.0),   # same second as the SL above — a win
+    ])
+    rm = RiskManager(db_path=db)
+    now = datetime(2026, 6, 8, 19, 30, 0)
+    # top-3 = all three rows → TP present → streak broken → allow
+    assert rm.is_loss_streak_active("XAUUSDm", streak_n=3, cooldown_minutes=60, now=now) is False
+
+
+def test_query_null_exit_reason_breaks_streak(tmp_path):
+    """A closed trade with exit_time set but exit_reason NULL is not a Stop-Loss
+    ((r[1] or '') → '' → 'Stop Loss' not in '') so it breaks an otherwise-SL streak."""
+    db = str(tmp_path / "t.db")
+    _seed_db(db, [
+        ("XAUUSDm", "2026-06-08 19:05:00", SL, -12.0),
+        ("XAUUSDm", "2026-06-08 19:25:00", SL, -12.0),
+        ("XAUUSDm", "2026-06-08 19:35:00", None, 0.0),   # closed, reason NULL — newest
+    ])
+    rm = RiskManager(db_path=db)
+    now = datetime(2026, 6, 8, 19, 40, 0)
+    assert rm.is_loss_streak_active("XAUUSDm", streak_n=3, cooldown_minutes=60, now=now) is False
