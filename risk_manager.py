@@ -91,6 +91,14 @@ MIN_LAYER_SPACING_MINUTES = 10
 # slip-closed layer, bleeding spread.
 SLIP_COOLDOWN_MINUTES = 5
 
+# ── Loss-streak circuit breaker (Gate R, 2026-06-09) ──────────────
+# Block a symbol's NEW entries after LOSS_STREAK_N consecutive Stop-Loss exits,
+# for LOSS_STREAK_COOLDOWN_MIN minutes from the most-recent SL, then auto re-arm.
+# Any non-SL exit (TP, slip-close, manual) in the top-N window breaks the streak.
+# Defaults here are fallbacks; the live values come from bot_config via the call site.
+LOSS_STREAK_N            = 3
+LOSS_STREAK_COOLDOWN_MIN = 60
+
 
 class RiskManager:
     def __init__(self, db_path="trading_history.db"):
@@ -365,6 +373,47 @@ class RiskManager:
 
         except Exception as e:
             log.warning(f"⚠️ [GUARDIAN-S] slip cooldown check error: {e}")
+            return False   # fail-open
+
+    def is_loss_streak_active(self, symbol, streak_n=LOSS_STREAK_N,
+                              cooldown_minutes=LOSS_STREAK_COOLDOWN_MIN,
+                              enabled=True, now=None, rows=None):
+        """[GUARDIAN-R] Block NEW entries on `symbol` for `cooldown_minutes` after
+        `streak_n` consecutive Stop-Loss exits. Auto re-arms: any non-SL exit (TP,
+        slip-close, manual) in the top-N window breaks the streak; cooldown expiry
+        unblocks even if the window is still all-SL.
+
+        Purely protective — only blocks new entries; never closes an open position.
+        `rows`: newest-first list of (exit_time_str, exit_reason) — injectable for
+        tests; defaults to a trade_history query. `now`: datetime, injectable
+        (defaults to datetime.now(), matching is_cooldown_active's clock since both
+        read the same exit_time column). Fail-open."""
+        import logging
+        log = logging.getLogger("System")
+        try:
+            if not enabled:
+                return False
+            if now is None:
+                now = datetime.now()
+            if rows is None:
+                rows = self._recent_exits(symbol, streak_n)   # Task 3
+            if len(rows) < streak_n:
+                return False
+            # Streak = the top-N exits are ALL Stop-Loss
+            if not all("Stop Loss" in (r[1] or "") for r in rows):
+                return False
+            last_sl_time = datetime.strptime(rows[0][0], "%Y-%m-%d %H:%M:%S")
+            elapsed_min = (now - last_sl_time).total_seconds() / 60.0
+            if elapsed_min < cooldown_minutes:
+                self._set_blocked(
+                    f"Loss-streak {streak_n}x SL — {elapsed_min:.1f}m<{cooldown_minutes}m")
+                log.warning(
+                    f"🛑 [GUARDIAN-R] Blocked {symbol} — {streak_n} consecutive SL, "
+                    f"last {elapsed_min:.1f}m ago (< {cooldown_minutes}m cooldown)")
+                return True
+            return False
+        except Exception as e:
+            log.warning(f"⚠️ [GUARDIAN-R] loss-streak check error: {e}")
             return False   # fail-open
 
     # ══════════════════════════════════════════════════════════════
