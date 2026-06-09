@@ -208,3 +208,7 @@ two contracts pinned above, the three plans are independent.
   backtest then live).
 - 7-year price history availability for SP-C (XAU `s3a_st3q` rerun is still pending from the
   prior session — same MT5 history dependency).
+
+### Live/backtest parity gaps (live-only gates not yet in backtest.py)
+
+- [ ] Port GUARDIAN-R (loss-streak breaker) to backtest.py for live/backtest parity.
