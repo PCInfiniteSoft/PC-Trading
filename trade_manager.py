@@ -409,6 +409,10 @@ async def trading_job():
                             log.warning(f"🛑 [GUARDIAN-Q] บล็อก! {s} BUY layer ชิดเกิน (anti-pyramid spacing)"); break
                         if agent3.is_slip_cooldown_active(s):
                             log.warning(f"🛑 [GUARDIAN-S] บล็อก! {s} BUY — slip-close cooldown active"); break
+                        if agent3.is_loss_streak_active(s, streak_n=LOSS_STREAK_N,
+                                cooldown_minutes=LOSS_STREAK_COOLDOWN_MIN,
+                                enabled=LOSS_STREAK_BREAKER_ENABLED):
+                            log.warning(f"🛑 [GUARDIAN-R] บล็อก! {s} BUY — loss-streak cooldown active"); break
                         if agent3.is_btc_dead_hour(s):
                             log.warning(f"🛑 [GUARDIAN-E] บล็อก! {s} Dead Hour (UTC 00-01)"); break
                         if agent3.is_xau_dead_hour(s, macro_data.get('bias', '')):
@@ -501,6 +505,10 @@ async def trading_job():
                             log.warning(f"🛑 [GUARDIAN-Q] บล็อก! {s} SELL layer ชิดเกิน (anti-pyramid spacing)"); break
                         if agent3.is_slip_cooldown_active(s):
                             log.warning(f"🛑 [GUARDIAN-S] บล็อก! {s} SELL — slip-close cooldown active"); break
+                        if agent3.is_loss_streak_active(s, streak_n=LOSS_STREAK_N,
+                                cooldown_minutes=LOSS_STREAK_COOLDOWN_MIN,
+                                enabled=LOSS_STREAK_BREAKER_ENABLED):
+                            log.warning(f"🛑 [GUARDIAN-R] บล็อก! {s} SELL — loss-streak cooldown active"); break
                         if agent3.is_btc_dead_hour(s):
                             log.warning(f"🛑 [GUARDIAN-E] บล็อก! {s} Dead Hour (UTC 00-01)"); break
                         if agent3.is_xau_dead_hour(s, macro_data.get('bias', '')):
