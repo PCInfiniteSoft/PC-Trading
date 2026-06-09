@@ -377,7 +377,13 @@ class RiskManager:
 
     def _recent_exits(self, symbol, n):
         """Return the most-recent `n` CLOSED trades for `symbol` as newest-first
-        (exit_time, exit_reason) tuples. Open positions (exit_time NULL) excluded."""
+        (exit_time, exit_reason) tuples. Open positions (exit_time NULL) excluded.
+
+        `exit_time` is second-resolution, so a single tick that closes several layers
+        can stamp the same timestamp on a TP and an SL. `ticket DESC` is a deterministic
+        secondary sort (ticket is the table's INTEGER PRIMARY KEY = the SQLite rowid),
+        so a same-second tie straddling the LIMIT-N boundary resolves the same way every
+        call instead of relying on SQLite's unspecified tie order."""
         conn = sqlite3.connect(self.db_path)
         try:
             cur = conn.cursor()
@@ -385,7 +391,7 @@ class RiskManager:
                 SELECT exit_time, exit_reason
                 FROM trade_history
                 WHERE symbol = ? AND exit_time IS NOT NULL
-                ORDER BY exit_time DESC
+                ORDER BY exit_time DESC, ticket DESC
                 LIMIT ?
             """, (symbol, n))
             return cur.fetchall()

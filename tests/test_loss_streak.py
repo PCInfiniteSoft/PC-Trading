@@ -181,6 +181,25 @@ def test_same_second_tp_in_window_breaks_streak(tmp_path):
     assert rm.is_loss_streak_active("XAUUSDm", streak_n=3, cooldown_minutes=60, now=now) is False
 
 
+def test_same_second_tie_straddling_window_is_deterministic(tmp_path):
+    """A same-second TP+SL pair straddling the LIMIT-N boundary must resolve the SAME
+    way every call. `ORDER BY exit_time DESC, ticket DESC` makes the higher-ticket row
+    of the tie the 'newest'. Here the SL is inserted last (higher ticket), so it wins
+    the slot-3 tie over the TP → top-3 is all-SL → block. Deterministic, not luck-of-tie."""
+    db = str(tmp_path / "t.db")
+    _seed_db(db, [
+        ("XAUUSDm", "2026-06-08 19:05:00", TP, +13.0),   # ticket 1 — same second as the SL below
+        ("XAUUSDm", "2026-06-08 19:05:00", SL, -12.0),   # ticket 2 — higher ticket → wins the tie
+        ("XAUUSDm", "2026-06-08 19:25:00", SL, -12.0),   # ticket 3
+        ("XAUUSDm", "2026-06-08 19:35:00", SL, -12.0),   # ticket 4 — newest
+    ])
+    rm = RiskManager(db_path=db)
+    now = datetime(2026, 6, 8, 19, 40, 0)
+    # top-3 by (exit_time DESC, ticket DESC) = 19:35 SL, 19:25 SL, 19:05 SL(ticket2);
+    # the 19:05 TP(ticket1) is slot-4, excluded → all-SL → block.
+    assert rm.is_loss_streak_active("XAUUSDm", streak_n=3, cooldown_minutes=60, now=now) is True
+
+
 def test_query_null_exit_reason_breaks_streak(tmp_path):
     """A closed trade with exit_time set but exit_reason NULL is not a Stop-Loss
     ((r[1] or '') → '' → 'Stop Loss' not in '') so it breaks an otherwise-SL streak."""
